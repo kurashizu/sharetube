@@ -182,7 +182,9 @@ async def run_pipeline() -> int:
         traceback.print_exc()
         return 1
     finally:
-        await be.close()
+        # close() is synchronous (drains the push worker thread); the
+        # pipeline is done here so a few ms of blocking is fine.
+        be.close()
         # Wipe tmpdir; keep cookies file (small).
         import shutil
         shutil.rmtree(tmpdir, ignore_errors=True)

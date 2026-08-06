@@ -58,22 +58,35 @@ jobs:
             ytdlp-${{ runner.os }}-
 
       # Everything else (ffmpeg, deno, omni-client, fonts) — frozen;
-      # bump the FFIX suffix manually when you want to refresh them.
+      # bump the -1 suffix manually when you want to refresh them.
+      # NOTE: paths are enumerated (NOT ~/.local/tools) so the frozen
+      # cache never contains yt-dlp — that would shadow the separate
+      # version-checked yt-dlp cache above.
       - name: Cache frozen tools
         id: fixed
         uses: actions/cache@v6
         with:
           path: |
-            ~/.local/tools
+            ~/.local/tools/ffmpeg
+            ~/.local/tools/ffprobe
+            ~/.local/tools/omni-client
+            ~/.local/tools/deno
             ~/.local/share/fonts
           key: tools-fixed-${{ runner.os }}-deno-${{ vars.DENO_VER }}-omni-${{ vars.OMNIPROXY_VER }}-ffmpeg-master-1
 
       - name: Install yt-dlp
-        if: steps.ytdlp.outputs.cache-hit != 'true'
         run: |
           set -euo pipefail
           mkdir -p ~/.local/tools
-          curl -fsSL -o ~/.local/tools/yt-dlp \
+          # Refresh unless the restored binary already matches the
+          # latest release (restore-keys may fall back to an older one).
+          CURRENT=$(~/.local/tools/yt-dlp --version 2>/dev/null || true)
+          echo "cached yt-dlp: ${CURRENT:-<none>}, latest: ${{ steps.yt.outputs.v }}"
+          if [ -x ~/.local/tools/yt-dlp ] && [ "${CURRENT}" = "${{ steps.yt.outputs.v }}" ]; then
+            echo "yt-dlp already up to date; skipping download"
+            exit 0
+          fi
+          curl -fsSL --max-time 120 --retry 2 -o ~/.local/tools/yt-dlp \
             "https://github.com/yt-dlp/yt-dlp/releases/download/${{ steps.yt.outputs.v }}/yt-dlp_linux"
           chmod +x ~/.local/tools/yt-dlp
           ~/.local/tools/yt-dlp --version
@@ -84,7 +97,7 @@ jobs:
           set -euo pipefail
           mkdir -p ~/.local/tools
           # ffmpeg: BtbN's rolling "latest" build (master branch).
-          curl -fsSL -o /tmp/ffmpeg.tar.xz \
+          curl -fsSL --max-time 300 --retry 2 -o /tmp/ffmpeg.tar.xz \
             "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-linux64-gpl.tar.xz"
           tar xJf /tmp/ffmpeg.tar.xz -C /tmp
           mv /tmp/ffmpeg-master-latest-linux64-gpl/bin/ffmpeg ~/.local/tools/ffmpeg
@@ -93,7 +106,7 @@ jobs:
           chmod +x ~/.local/tools/ffmpeg ~/.local/tools/ffprobe
           # OmniProxy client: local SOCKS5 that tunnels over WebSocket to
           # the Oracle server, unlocking the Azure-IP bot wall.
-          curl -fsSL -o /tmp/omni.tar.xz \
+          curl -fsSL --max-time 120 --retry 2 -o /tmp/omni.tar.xz \
             "https://github.com/kurashizu/OmniProxy/releases/download/${{ vars.OMNIPROXY_VER }}/omni-proxy-linux-x86_64.tar.xz"
           tar xJf /tmp/omni.tar.xz -C /tmp
           mv /tmp/dist/client ~/.local/tools/omni-client
@@ -101,7 +114,7 @@ jobs:
           rm -f /tmp/omni.tar.xz
           # deno: JS runtime required by yt-dlp to solve YouTube's
           # n/signature challenges.
-          curl -fsSL -o /tmp/deno.zip \
+          curl -fsSL --max-time 120 --retry 2 -o /tmp/deno.zip \
             "https://github.com/denoland/deno/releases/download/${{ vars.DENO_VER }}/deno-x86_64-unknown-linux-gnu.zip"
           unzip -o /tmp/deno.zip -d ~/.local/tools > /dev/null
           chmod +x ~/.local/tools/deno
@@ -112,30 +125,35 @@ jobs:
 
       # CJK fonts for the video watermark (drawtext) — also frozen, so
       # cached as ~/.local/share/fonts; the cache restore puts them
-      # back without reinstalling. fc-match then confirms they're
-      # visible to fontconfig.
+      # back without reinstalling. Transcode finds the .ttc by path, so
+      # no fc-cache/fontconfig rebuild is needed on restore.
       - name: Install CJK fonts (cached)
         run: |
           set -euo pipefail
-          if [ -d "$HOME/.local/share/fonts" ] && [ "$(ls -A "$HOME/.local/share/fonts" | wc -l)" -gt 0 ]; then
+          FONTS_DIR="$HOME/.local/share/fonts"
+          mkdir -p "$FONTS_DIR"
+          if ls "$FONTS_DIR"/*.ttc > /dev/null 2>&1; then
             echo "fonts restored from cache"
           else
-            mkdir -p "$HOME/.local/share/fonts"
-            # Download the .deb without installing, extract the TTCs.
             cd /tmp
-            curl -fsSL -o noto-cjk.deb \
-              "https://archive.ubuntu.com/ubuntu/pool/main/f/fonts-noto-cjk/fonts-noto-cjk_20230817+repack1-3_all.deb" || \
-            curl -fsSL -o noto-cjk.deb \
+            # Grab the Noto CJK .deb directly from Ubuntu's pool
+            # (fast on GH's Azure egress) and unpack just the fonts.
+            for url in \
+              "https://archive.ubuntu.com/ubuntu/pool/main/f/fonts-noto-cjk/fonts-noto-cjk_20230817+repack1-3_all.deb" \
               "https://archive.ubuntu.com/ubuntu/pool/main/f/fonts-noto-cjk/fonts-noto-cjk_20220127+repack1-1_all.deb"
+            do
+              if curl -fsSL --max-time 90 --retry 2 -o noto-cjk.deb "$url"; then
+                break
+              fi
+            done
+            [ -s noto-cjk.deb ] || { echo "::error::could not download fonts-noto-cjk"; exit 1; }
             dpkg-deb -x noto-cjk.deb /tmp/noto-cjk-extract
-            find /tmp/noto-cjk-extract/usr/share/fonts -name '*.ttc' -o -name '*.otf' | while read f; do
-              cp "$f" "$HOME/.local/share/fonts/"
+            find /tmp/noto-cjk-extract/usr/share/fonts -name '*.ttc' -o -name '*.otf' | while read -r f; do
+              cp "$f" "$FONTS_DIR/"
             done
             rm -rf /tmp/noto-cjk.deb /tmp/noto-cjk-extract
           fi
-          fc-cache -f "$HOME/.local/share/fonts" > /dev/null 2>&1 || true
-          echo "fonts: $(ls "$HOME/.local/share/fonts")"
-          fc-match -f '%{file}\n' 'Noto Sans CJK SC' | head -1
+          echo "fonts: $(ls "$FONTS_DIR")"
 
       - name: Add tools to PATH
         run: echo "$HOME/.local/tools" >> "$GITHUB_PATH"

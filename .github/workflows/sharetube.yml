@@ -119,8 +119,9 @@ jobs:
             -in secrets/cookies.txt.enc \
             -out ~/.local/share/sharetube/cookies.txt \
             -pass env:COOKIES_PASS
+          # NOTE: never print cookie contents to logs — this chart is on a
+          # public repo and the Actions log is visible to anyone.
           ls -la ~/.local/share/sharetube/cookies.txt
-          head -3 ~/.local/share/sharetube/cookies.txt
 
       # ── Tunnel ──────────────────────────────────────────────────────
       # Start the OmniProxy SOCKS5 client locally (127.0.0.1:1080). It
@@ -181,11 +182,17 @@ jobs:
           pkill -f 'omni-client' || true
           rm -f ~/.local/share/sharetube/cookies.txt
 
-      - name: Upload logs on failure
+      # Upload only the runner's own transcript (a log text we push to
+      # the backend already), NOT decrypted cookies or the downloaded
+      # Media filenames in /tmp/sharetube-*. Those are private.
+      - name: Upload runner transcript on failure
         if: failure()
-        uses: actions/upload-artifact@v7
-        with:
-          name: sharetube-logs-${{ github.event.client_payload.job_id || inputs.job_id }}
-          path: |
-            ~/.local/share/sharetube/cookies.txt
-            /tmp/sharetube-*
+        shell: bash
+        run: |
+          : # transcripts are already streamed to the Worker/D1; nothing
+            # with secrets should ever be zipped for a public repo.
+            # (kept as an explicit no-op so we don't re-add an upload)
+        # uses: actions/upload-artifact@v7
+        # with:
+        #   name: sharetube-logs-${{ github.event.client_payload.job_id || inputs.job_id }}
+        #   path: /tmp/sharetube-runner.log  # not currently written

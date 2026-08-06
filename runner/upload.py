@@ -51,6 +51,11 @@ def _maybe_admin_headers() -> dict[str, str]:
     return {"Authorization": "Basic " + base64.b64encode(raw).decode()}
 
 
+# Cloudflare on the cf-share host 403s urllib's default UA
+# (``Python-urllib/3.x``). Send a browser-ish UA on every request.
+_UA = {"User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36"}
+
+
 def _guess_content_type(filename: str) -> str:
     n = filename.lower()
     if n.endswith(".mp4"):
@@ -72,7 +77,7 @@ def _request(url: str, body, headers: dict, method: str = "POST") -> dict:
         headers = {**headers, "Content-Type": "application/json"}
     else:
         body_bytes = body
-    req = urllib.request.Request(url, data=body_bytes, method=method, headers=headers)
+    req = urllib.request.Request(url, data=body_bytes, method=method, headers={**_UA, **headers})
     with urllib.request.urlopen(req, timeout=300) as r:
         ctype = r.headers.get("Content-Type", "")
         if "json" in ctype:
@@ -82,7 +87,7 @@ def _request(url: str, body, headers: dict, method: str = "POST") -> dict:
 
 def _capture_etag(url: str, body: bytes, headers: dict) -> str:
     """PUT to S3 and read the ETag header from the response."""
-    req = urllib.request.Request(url, data=body, method="PUT", headers=headers)
+    req = urllib.request.Request(url, data=body, method="PUT", headers={**_UA, **headers})
     try:
         with urllib.request.urlopen(req, timeout=300) as r:
             return (r.headers.get("ETag") or "").strip().strip('"')

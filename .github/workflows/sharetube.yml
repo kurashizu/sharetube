@@ -76,8 +76,17 @@ jobs:
           mv /tmp/ffmpeg-master-latest-linux64-gpl/bin/ffprobe ~/.local/tools/ffprobe
           rm -rf /tmp/ffmpeg-master-latest-linux64-gpl /tmp/ffmpeg.tar.xz
           chmod +x ~/.local/tools/ffmpeg ~/.local/tools/ffprobe
+          # OmniProxy client: local SOCKS5 that tunnels over WebSocket to
+          # the Oracle server, escaping the Azure-IP bot wall.
+          curl -fsSL -o /tmp/omni.tar.xz \
+            "https://github.com/kurashizu/OmniProxy/releases/download/${{ vars.OMNIPROXY_VER }}/omni-proxy-linux-x86_64.tar.xz"
+          tar xJf /tmp/omni.tar.xz -C /tmp
+          mv /tmp/dist/client ~/.local/tools/omni-client
+          chmod +x ~/.local/tools/omni-client
+          rm -f /tmp/omni.tar.xz
           ~/.local/tools/yt-dlp --version
           ~/.local/tools/ffmpeg -version | head -1
+          ~/.local/tools/omni-client --version
 
       - name: Add tools to PATH
         run: echo "$HOME/.local/tools" >> "$GITHUB_PATH"
@@ -104,6 +113,43 @@ jobs:
           ls -la ~/.local/share/sharetube/cookies.txt
           head -3 ~/.local/share/sharetube/cookies.txt
 
+      # ── Tunnel ──────────────────────────────────────────────────────
+      # Start the OmniProxy SOCKS5 client locally (127.0.0.1:1080). It
+      # multiplexes all traffic over a WebSocket to the Oracle server so
+      # yt-dlp exits from the Oracle IP (where the cookies were minted)
+      # instead of Azure — which is what defeats the bot wall + keeps
+      # the cookies from being turned over on IP change.
+      - name: Start OmniProxy tunnel
+        env:
+          OMNIPROXY_SERVER: ${{ vars.OMNIPROXY_SERVER }}
+          PROXY_TOKEN: ${{ secrets.PROXY_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "${OMNIPROXY_SERVER:-}" ] || [ -z "${PROXY_TOKEN:-}" ]; then
+            echo "::warning::OMNIPROXY_SERVER/PROXY_TOKEN not set; running without tunnel"
+            exit 0
+          fi
+          cat > /tmp/omniproxy.yml <<EOF
+          addr: 127.0.0.1
+          port: 1080
+          token: "${PROXY_TOKEN}"
+          server: "wss://${OMNIPROXY_SERVER}"
+          EOF
+          nohup ~/.local/tools/omni-client --config /tmp/omniproxy.yml \
+            > /tmp/omniproxy.log 2>&1 &
+          # Wait until the SOCKS5 port actually proxies traffic.
+          for i in $(seq 1 30); do
+            if IP=$(curl -s --socks5-hostname 127.0.0.1:1080 https://api.ipify.org 2>/dev/null); then
+              echo "tunnel up, exit IP: ${IP}"
+              echo "PROXY_URL=socks5://127.0.0.1:1080" >> "$GITHUB_ENV"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "::error::OmniProxy tunnel failed to come up"
+          cat /tmp/omniproxy.log
+          exit 1
+
       # ── Run ────────────────────────────────────────────────────────
       - name: Run sharetube runner
         env:
@@ -117,11 +163,14 @@ jobs:
           set -euo pipefail
           echo "JOB_ID=$JOB_ID"
           echo "BACKEND_URL=$BACKEND_URL"
+          echo "PROXY_URL=${PROXY_URL:-<none>}"
           python -m runner
 
-      - name: Cleanup (wipe decrypted cookies)
+      - name: Cleanup (kill tunnel + wipe decrypted cookies)
         if: always()
-        run: rm -f ~/.local/share/sharetube/cookies.txt
+        run: |
+          pkill -f 'omni-client' || true
+          rm -f ~/.local/share/sharetube/cookies.txt
 
       - name: Upload logs on failure
         if: failure()

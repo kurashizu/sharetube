@@ -72,6 +72,7 @@ def _run_once(
         "--newline",
         "--no-part",
         "-o", out_template,
+        *(["--proxy", cfg.proxy_url] if cfg.proxy_url else []),
         "-S", f"vcodec:h264,vcodec:vp9,vcodec:hevc,{sort_res}",
         "-f",
         "(bv*[vcodec^=avc1]+ba)/"

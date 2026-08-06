@@ -91,6 +91,7 @@ class Config:
     encoder_preset: str
     ffmpeg_bin: str
     ytdlp_bin: str
+    proxy_url: str | None = None  # e.g. "socks5://user:pass@host:1080"
 
     @classmethod
     def from_env(cls) -> "Config":
@@ -105,4 +106,5 @@ class Config:
             encoder_preset=_opt("ENCODER_PRESET", DEFAULT_ENCODER_PRESET),
             ffmpeg_bin=_opt("FFMPEG_BIN", "ffmpeg"),
             ytdlp_bin=_opt("YTDLP_BIN", "yt-dlp"),
+            proxy_url=(os.environ.get("PROXY_URL") or None),
         )

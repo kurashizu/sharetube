@@ -63,8 +63,8 @@
   // Short status label for the sidebar (pending jobs have no pct).
   function pendingLabel(j: JobEntry): string {
     if (j.status !== 'pending') return '';
-    if (j.dispatched) return '启动中';
-    return j.queue_pos > 1 ? `排队 #${j.queue_pos}` : '等待';
+    if (j.dispatched) return 'starting';
+    return j.queue_pos > 1 ? `queued #${j.queue_pos}` : 'waiting';
   }
 
   function select(j: JobEntry) {

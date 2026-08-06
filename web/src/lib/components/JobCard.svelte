@@ -37,12 +37,12 @@
   const pendingNote = $derived.by((): string | null => {
     if (job?.status !== 'pending') return null;
     if (job.dispatched) {
-      return 'GitHub runner 已分配,正在配置环境并启动…';
+      return 'GitHub runner allocated — setting up environment…';
     }
     const pos = job.queue_pos;
     return pos > 1
-      ? `正在排队(第 ${pos} 位)等待空闲 runner…`
-      : '正在等待 GitHub runner 分配…';
+      ? `Queued (#${pos}) — waiting for a free runner…`
+      : 'Waiting for GitHub to allocate a runner…';
   });
 
   const overallPct = $derived.by((): number => {

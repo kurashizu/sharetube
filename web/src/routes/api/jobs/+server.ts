@@ -162,7 +162,11 @@ export const POST: RequestHandler = async ({ request, platform }) => {
           },
           body: JSON.stringify({
             event_type: 'sharetube-job',
-            client_payload: { job_id: id }
+            client_payload: {
+              job_id: id,
+              url: body.url,
+              config: JSON.stringify(body.config ?? {}),
+            }
           })
         }
       );

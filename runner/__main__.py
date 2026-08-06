@@ -27,6 +27,7 @@ import traceback
 from pathlib import Path
 
 from . import backend, config, download, transcode, upload
+from .backend import JobCancelled
 
 
 REPO_ROOT = Path(os.environ.get("GITHUB_WORKSPACE", ".")).resolve()
@@ -116,16 +117,21 @@ async def run_pipeline() -> int:
         # ── 1. download ─────────────────────────────────────────────
         be.log([f"tmpdir: {tmpdir}"])
         dl = download.download(cfg.url, tmpdir, cfg, be, cookies_path=cookies_path)
+        be.raise_if_cancelled()
         be.log([f"downloaded: {dl.path} ({dl.path.stat().st_size:,} bytes)"])
         be.update_sync({
             "phase": "Download",
             "download_pct": 100,
-            "meta": f"{dl.path.stat().st_size:,} bytes"
+            "meta": f"{dl.path.stat().st_size:,} bytes",
+            # Friendly name for the UI lists.
+            "title": dl.title,
         })
 
         # ── 2. transcode ───────────────────────────────────────────
+        be.raise_if_cancelled()
         out_mp4 = tmpdir / "out.mp4"
         tx_mod = transcode.transcode(dl.path, out_mp4, cfg, be)
+        be.raise_if_cancelled()
         be.log([f"transcoded: {tx_mod.path} ({tx_mod.path.stat().st_size:,} bytes)"])
         be.update_sync({
             "phase": "Transcode",
@@ -134,6 +140,7 @@ async def run_pipeline() -> int:
         })
 
         # ── 3. upload ──────────────────────────────────────────────
+        be.raise_if_cancelled()
         def _upload_progress(pct: float, meta: str) -> None:
             be.update_sync({
                 "phase": "Upload",
@@ -165,6 +172,10 @@ async def run_pipeline() -> int:
         ])
         return 0
 
+    except JobCancelled:
+        be.log(["✗ Cancelled by user"])
+        be.update_sync({"status": "error", "error": "cancelled by user"})
+        return 1
     except Exception as e:  # noqa: BLE001
         be.log([f"✗ {type(e).__name__}: {e}"])
         be.update_sync({"status": "error", "error": str(e)[:2000]})

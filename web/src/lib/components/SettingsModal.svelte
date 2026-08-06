@@ -84,17 +84,6 @@
             </div>
             <div class="field-hint">Cap on what yt-dlp is allowed to download.</div>
           </div>
-
-          <div class="field">
-            <label class="checkbox-label">
-              <input type="checkbox" bind:checked={draft.use_cookies} />
-              Send YouTube cookies (set in repo: <code>secrets/cookies.txt.enc</code>)
-            </label>
-            <div class="field-hint">
-              Required for some videos that trip the bot wall ("Sign in to confirm").
-              The runner decrypts the file with the <code>COOKIES_PASS</code> repo secret.
-            </div>
-          </div>
         </div>
 
         <div class="field-group">

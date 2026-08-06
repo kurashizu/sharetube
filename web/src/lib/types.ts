@@ -4,7 +4,7 @@
 export type PhaseName = 'Download' | 'Transcode' | 'Upload';
 
 /** Lifecycle status of a job. */
-export type JobStatus = 'pending' | 'running' | 'done' | 'error';
+export type JobStatus = 'pending' | 'running' | 'done' | 'error' | 'cancelled';
 
 /** Per-job settings snapshot, echoed back in the GET response so the UI
  *  can show what the user submitted. */
@@ -55,6 +55,13 @@ export interface JobEntry {
   expires_at: number | null;
   /** Error message (only on `error`). */
   error: string | null;
+  /** Friendly display name (video title), set by the runner after
+   *  extraction. Null until reported. */
+  title: string | null;
+  /** Queue position among pending jobs (for up/down moves). */
+  queue_pos: number;
+  /** True when the user requested a force-stop; runner aborts. */
+  cancelled: boolean;
   config: JobConfig;
   created_at: number;
   updated_at: number;

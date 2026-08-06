@@ -13,10 +13,12 @@
 //     share_url?: string,
 //     direct_url?: string,
 //     expires_at?: number,
-//     error?: string
+//     error?: string,
+//     title?: string
 //   }
 //
-// Returns { ok: true }.
+// Returns { ok: true, cancelled: 0|1 }. The `cancelled` flag lets the
+// runner stop mid-pipeline when the user force-stops a job.
 
 import { json, type RequestHandler } from '@sveltejs/kit';
 
@@ -51,7 +53,7 @@ export const POST: RequestHandler = async ({ request, platform }) => {
   // Read current row so we can append to logs and preserve untouched
   // per-phase pcts.
   const row = await env.DB.prepare(
-    `SELECT log_lines, dl_pct, tx_pct, up_pct, status, phase, meta
+    `SELECT log_lines, dl_pct, tx_pct, up_pct, status, phase, meta, cancelled
        FROM jobs WHERE id = ?`
   )
     .bind(job_id)
@@ -63,6 +65,7 @@ export const POST: RequestHandler = async ({ request, platform }) => {
       status: string;
       phase: string | null;
       meta: string;
+      cancelled: number;
     }>();
   if (!row) return json({ error: 'unknown job_id' }, { status: 404 });
 
@@ -115,6 +118,11 @@ export const POST: RequestHandler = async ({ request, platform }) => {
     binds.push(body.error);
   }
 
+  if (typeof body.title === 'string') {
+    sets.push('title = ?');
+    binds.push(body.title.slice(0, 500));
+  }
+
   // Append logs. We rebuild the JSON array server-side and cap it to
   // MAX_LOG_LINES (drop oldest).
   let mergedLogs: string[] = JSON.parse(row.log_lines || '[]');
@@ -141,5 +149,5 @@ export const POST: RequestHandler = async ({ request, platform }) => {
     .bind(...binds)
     .run();
 
-  return json({ ok: true });
+  return json({ ok: true, cancelled: row.cancelled ?? 0 });
 };

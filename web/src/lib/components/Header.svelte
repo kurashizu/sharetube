@@ -18,6 +18,8 @@
         return { class: 'done', label: 'Done' };
       case 'error':
         return { class: 'error', label: 'Error' };
+      case 'cancelled':
+        return { class: 'cancelled', label: 'Cancelled' };
       default:
         return { class: '', label: 'Idle' };
     }
@@ -29,11 +31,13 @@
     <span class="brand-logo">▶</span>
     <span class="brand-name">sharetube</span>
   </div>
-  <div class="status-pill {statusInfo.class}">
-    <span class="status-dot {statusInfo.class}"></span>
-    <span>{statusInfo.label}</span>
+  <div class="header-right">
+    <div class="status-pill {statusInfo.class}">
+      <span class="status-dot {statusInfo.class}"></span>
+      <span>{statusInfo.label}</span>
+    </div>
+    <button class="icon-btn" onclick={onOpenSettings} aria-label="Open settings">
+      ⚙
+    </button>
   </div>
-  <button class="icon-btn" onclick={onOpenSettings} aria-label="Open settings">
-    ⚙
-  </button>
 </header>

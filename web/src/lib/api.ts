@@ -50,3 +50,30 @@ export async function startJob(body: CreateJobRequest): Promise<CreateJobRespons
     })
   );
 }
+
+/** Move a queued (pending) job up/down. */
+export async function moveJob(id: string, direction: 'up' | 'down'): Promise<void> {
+  await asJson<{ ok: boolean }>(
+    await fetch(`/api/jobs/${encodeURIComponent(id)}/move`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ direction })
+    })
+  );
+}
+
+/** Force-stop a running job (or cancel a pending one). */
+export async function cancelJob(id: string): Promise<void> {
+  await asJson<{ ok: boolean }>(
+    await fetch(`/api/jobs/${encodeURIComponent(id)}/cancel`, {
+      method: 'POST'
+    })
+  );
+}
+
+/** Hard-delete a job row from the list. */
+export async function deleteJob(id: string): Promise<void> {
+  await asJson<{ ok: boolean }>(
+    await fetch(`/api/jobs/${encodeURIComponent(id)}`, { method: 'DELETE' })
+  );
+}

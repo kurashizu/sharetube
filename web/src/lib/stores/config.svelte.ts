@@ -29,7 +29,10 @@ export const DEFAULT_SETTINGS: UserSettings = {
   watermark_line1: 'KRSZ Share',
   watermark_line2: '{title} · {resolution} · {duration}',
   watermark_font_size: 28,
-  use_cookies: false
+  // Cookies are always used (bot wall). The option is no longer
+  // exposed in the UI; kept in the type only for stored settings
+  // from older clients.
+  use_cookies: true
 };
 
 /** Read a stored setting, falling back to default. */

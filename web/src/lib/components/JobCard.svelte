@@ -45,7 +45,7 @@
 <section class="card job-card">
   <header class="card-header">
     <span class="job-status-dot {dotClass}"></span>
-    <span class="job-card-url">{activeJob.job?.url ?? ''}</span>
+    <span class="job-card-url">{activeJob.job?.title ?? activeJob.job?.url ?? ''}</span>
     <span class="job-card-pct">{overallPct}%</span>
   </header>
 

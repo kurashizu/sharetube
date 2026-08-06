@@ -37,6 +37,7 @@ class Backend:
         self._closed = False
         self._last_push_at = 0.0
         self._lock = threading.Lock()
+        self._cancelled = False
         self._worker = threading.Thread(
             target=self._drain, name="sharetube-push", daemon=True
         )
@@ -82,6 +83,17 @@ class Backend:
         self._worker.join(timeout=drain_timeout)
         # Anything still left is dropped; the next push in a future
         # job (or via direct update_sync) will catch up.
+
+    def raise_if_cancelled(self) -> None:
+        """Raise JobCancelled if the user force-stopped this job.
+
+        The server returns `cancelled: 1` on update responses; the
+        worker thread records it here. The pipeline calls this at
+        phase boundaries / progress callbacks so a force-stop takes
+        effect within a couple of seconds.
+        """
+        if self._cancelled:
+            raise JobCancelled()
 
     # ── internals ─────────────────────────────────────────────────────
 
@@ -138,6 +150,17 @@ class Backend:
                     "update → %s: %s; body=%s",
                     r.status, r.reason, content,
                 )
+                return
+            try:
+                resp = json.loads(r.read().decode("utf-8", errors="replace"))
+                if resp.get("cancelled"):
+                    self._cancelled = True
+            except Exception:  # noqa: BLE001
+                pass
+
+
+class JobCancelled(Exception):
+    """Raised inside the pipeline when the user force-stops the job."""
 
 
 _SHUTDOWN_SENTINEL: dict = {"_sync": True, "_shutdown": True}

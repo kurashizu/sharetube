@@ -20,7 +20,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
-from .backend import Backend
+from .backend import Backend, JobCancelled
 from .config import Config
 
 _PROGRESS_TEMPLATE = (
@@ -125,6 +125,15 @@ def _run_once(
         line = line.rstrip()
         if not line:
             continue
+        # User force-stop: kill the subprocess promptly.
+        try:
+            backend.raise_if_cancelled()
+        except JobCancelled:
+            try:
+                proc.kill()
+            except Exception:
+                pass
+            raise
         m = pct_re.match(line)
         if m:
             try:

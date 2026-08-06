@@ -39,7 +39,8 @@
           watermark_line1: cfg.watermark_line1,
           watermark_line2: cfg.watermark_line2,
           watermark_font_size: cfg.watermark_font_size,
-          use_cookies: cfg.use_cookies
+          // Cookies are always sent (bot wall); not a user choice.
+          use_cookies: true
         }
       });
       activeJob.set(res.id);

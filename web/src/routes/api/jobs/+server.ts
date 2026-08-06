@@ -3,9 +3,11 @@
 // GET  /api/jobs           → [{ ... }, ...] (newest-first; capped)
 // POST /api/jobs           → { id, status }  (also dispatches GH workflow)
 //
-// POST also writes the user-supplied cookies.txt (if any) to a slot in
-// D1 so the runner can retrieve it later. We do that on dispatch rather
-// than relying on the dispatch payload size limits.
+// GET also performs *zombie detection*: pending jobs older than
+// ZOMBIE_PENDING_S and running jobs whose last update is older than
+// ZOMBIE_RUNNING_S are flipped to `error` ("runner never picked it up"
+// / "runner lost contact"). This prevents the UI from showing a job as
+// forever "working" when a workflow died without a final update.
 
 import { error, json, type RequestHandler } from '@sveltejs/kit';
 import type {
@@ -19,6 +21,10 @@ interface Env {
   GH_REPO?: string;
   GH_DISPATCH_TOKEN?: string;
 }
+
+const ZOMBIE_PENDING_S = 10 * 60;   // dispatch → runner start is ~1-2 min
+const ZOMBIE_RUNNING_S = 30 * 60;   // heartbeat via pushes; 30 min without
+                                    // any update means the runner died
 
 interface Counters {
   status: string;
@@ -34,6 +40,9 @@ interface Counters {
   error: string | null;
   updated_at: number;
   config_json: string;
+  queue_pos: number;
+  title: string | null;
+  cancelled: number;
 }
 
 /** Build the JSON-safe shape the frontend consumes. */
@@ -72,6 +81,9 @@ function toJobEntry(
     expires_at: row.expires_at,
     error: row.error,
     config,
+    queue_pos: row.queue_pos ?? 0,
+    title: row.title ?? null,
+    cancelled: (row.cancelled ?? 0) === 1,
     created_at: row.created_at,
     updated_at: row.updated_at
   } as JobEntry;
@@ -79,10 +91,28 @@ function toJobEntry(
 
 export const GET: RequestHandler = async ({ platform }) => {
   const env = platform!.env;
+  const now = Math.floor(Date.now() / 1000);
+
+  // ── zombie detection ────────────────────────────────────────────
+  // Pending too long = the GH dispatch never turned into a running
+  // workflow (or it died before its first push).
+  await env.DB.prepare(
+    `UPDATE jobs SET status = 'error', error = 'Runner never picked up the job (dispatch timed out).',
+            updated_at = ?
+      WHERE status = 'pending' AND created_at < ?`
+  ).bind(now, now - ZOMBIE_PENDING_S).run();
+  // Running without any progress update for a long time = the runner
+  // crashed mid-pipeline without a final error push.
+  await env.DB.prepare(
+    `UPDATE jobs SET status = 'error', error = 'Runner lost contact (no updates for 30 min).',
+            updated_at = ?
+      WHERE status = 'running' AND updated_at < ? AND cancelled = 0`
+  ).bind(now, now - ZOMBIE_RUNNING_S).run();
+
   const { results } = await env.DB.prepare(
     `SELECT id, url, status, phase, dl_pct, tx_pct, up_pct, meta,
             log_lines, share_url, direct_url, expires_at, error,
-            config_json, created_at, updated_at
+            config_json, queue_pos, title, cancelled, created_at, updated_at
        FROM jobs
       ORDER BY created_at DESC
       LIMIT 200`
@@ -101,6 +131,9 @@ export const GET: RequestHandler = async ({ platform }) => {
     expires_at: number | null;
     error: string | null;
     config_json: string;
+    queue_pos: number;
+    title: string | null;
+    cancelled: number;
     created_at: number;
     updated_at: number;
   }>();
@@ -124,19 +157,26 @@ export const POST: RequestHandler = async ({ request, platform }) => {
   const id = crypto.randomUUID();
   const now = Math.floor(Date.now() / 1000);
 
+  // Next queue position among pending jobs.
+  const qrow = await env.DB.prepare(
+    `SELECT COALESCE(MAX(queue_pos), 0) + 1 AS next FROM jobs WHERE status = 'pending'`
+  ).first<{ next: number }>();
+  const queue_pos = qrow?.next ?? 1;
+
   await env.DB.prepare(
     `INSERT INTO jobs
        (id, url, status, phase, dl_pct, tx_pct, up_pct, meta,
         log_lines, share_url, direct_url, expires_at, error,
-        config_json, created_at, updated_at)
+        config_json, queue_pos, title, cancelled, created_at, updated_at)
      VALUES (?, ?, 'pending', NULL, 0, 0, 0, '',
              '[]', NULL, NULL, NULL, NULL,
-             ?, ?, ?)`
+             ?, ?, NULL, 0, ?, ?)`
   )
     .bind(
       id,
       body.url,
       JSON.stringify(body.config ?? {}),
+      queue_pos,
       now,
       now
     )

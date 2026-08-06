@@ -83,8 +83,6 @@
     />
   {:else if job?.status === 'error'}
     <div class="error-banner">✗ {job.error ?? 'Unknown error'}</div>
-  {:else if job?.status === 'pending'}
-    <div class="dim">Waiting for runner to pick up the job…</div>
   {/if}
 
   <LogSection />

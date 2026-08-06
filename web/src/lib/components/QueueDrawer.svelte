@@ -116,7 +116,7 @@
     {/if}
 
     {#if queue.length > 0}
-      <div class="sidebar-group-label">Queue</div>
+      <div class="sidebar-group-label starting-label">STARTING</div>
       {#each queue as j, i (j.id)}
         <div
           class="queue-item {activeJob.jobId === j.id ? 'active' : ''}"

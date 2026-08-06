@@ -1,0 +1,39 @@
+<script lang="ts">
+  import { activeJob } from '$lib/stores/active.svelte';
+
+  interface Props {
+    onOpenSettings: () => void;
+  }
+
+  let { onOpenSettings }: Props = $props();
+
+  // Map job status to pill class + human label.
+  const statusInfo = $derived.by((): { class: string; label: string } => {
+    const status = activeJob.job?.status ?? 'idle';
+    switch (status) {
+      case 'running':
+      case 'pending':
+        return { class: 'running', label: 'Working' };
+      case 'done':
+        return { class: 'done', label: 'Done' };
+      case 'error':
+        return { class: 'error', label: 'Error' };
+      default:
+        return { class: '', label: 'Idle' };
+    }
+  });
+</script>
+
+<header class="app-header">
+  <div class="brand">
+    <span class="brand-logo">▶</span>
+    <span class="brand-name">sharetube</span>
+  </div>
+  <div class="status-pill {statusInfo.class}">
+    <span class="status-dot {statusInfo.class}"></span>
+    <span>{statusInfo.label}</span>
+  </div>
+  <button class="icon-btn" onclick={onOpenSettings} aria-label="Open settings">
+    ⚙
+  </button>
+</header>

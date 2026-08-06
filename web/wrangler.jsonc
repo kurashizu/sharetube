@@ -1,0 +1,38 @@
+/**
+ * Cloudflare Worker / Pages configuration for the sharetube web app.
+ *
+ * Bindings:
+ *   DB  – D1 database (replaces the previous FastAPI/SQLite state)
+ *
+ * Vars (set during deploy, override-able per-environment):
+ *   GH_REPO        – "owner/repo" used by POST /api/jobs to dispatch
+ *                    workflow runs.
+ *
+ * Secrets (set via `wrangler secret put`):
+ *   GH_DISPATCH_TOKEN – Personal Access Token with `repo` + `workflow`
+ *                       scope. Lets the Worker trigger GH Actions via
+ *                       `repository_dispatch`.
+ *   INTERNAL_TOKEN    – Shared secret the Python runner uses to
+ *                       authenticate when posting progress updates
+ *                       back to /api/internal/progress.
+ */
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "sharetube",
+  "main": ".svelte-kit/cloudflare/_worker.js",
+  "compatibility_date": "2025-01-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "vars": {
+    "GH_REPO": "kurashizu/sharetube"
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "sharetube-db",
+      "database_id": "REPLACE_WITH_D1_ID"
+    }
+  ],
+  "observability": {
+    "enabled": true
+  }
+}

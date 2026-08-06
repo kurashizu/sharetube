@@ -1,0 +1,36 @@
+# ─── Secrets (plaintext) ───────────────────────────────────────────────
+# The plaintext cookies file MUST NEVER be committed. Encrypt it with
+# the passphrase from $COOKIES_PASS and commit secrets/cookies.txt.enc.
+cookies.txt
+coockies.txt
+cookies-*.txt
+youtube*.txt
+*.cookies.txt
+private.key
+cookies.agekey
+
+# ─── Node / SvelteKit ──────────────────────────────────────────────────
+node_modules/
+.svelte-kit/
+build/
+dist/
+.wrangler/
+.dev.vars*
+.npmrc
+
+# ─── Python ────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+uv.lock
+
+# ─── OS ────────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+*.swp
+
+# ─── Build state ──────────────────────────────────────────────────────
+*.log
+.cache/
+sharetube-*.tmp

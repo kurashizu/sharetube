@@ -1,0 +1,148 @@
+name: sharetube
+
+# Triggered by the Cloudflare Worker via
+# `POST /repos/{owner}/{repo}/dispatches` (event_type=sharetube-job).
+# The Worker emits a tiny payload with just `job_id`; the frontend
+# already has the rest of the per-job config.
+on:
+  repository_dispatch:
+    types: [sharetube-job]
+  workflow_dispatch:
+    inputs:
+      job_id:
+        description: "Job ID (for manual re-runs of an in-flight job)"
+        required: true
+
+# Avoid concurrent runs of the same job_id; keeps idempotent on retry.
+concurrency:
+  group: sharetube-${{ github.event.client_payload.job_id || inputs.job_id }}
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+
+      # ── Tool versions & cache ────────────────────────────────────────
+      # Query the GitHub API at runtime so the cache key reflects the
+      # upstream release. yt-dlp's tag is `YYYY.MM.DD`; BtbN/FFmpeg-
+      # Builds ships numeric tags `nX.Y` for the FFmpeg major.minor
+      # line. Pinning to a major.minor instead of a daily autobuild
+      # keeps cache hits stable across patches.
+      - name: Resolve tool versions
+        id: versions
+        run: |
+          set -euo pipefail
+          YT_DLP_VER=$(curl -fsSL https://api.github.com/repos/yt-dlp/yt-dlp/releases/latest \
+            | python3 -c "import json,sys;print(json.load(sys.stdin)['tag_name'])")
+          FFMPEG_LINE=$(curl -fsSL "https://api.github.com/repos/BtbN/FFmpeg-Builds/releases?per_page=100" \
+            | python3 -c "
+          import json, sys, re
+          rels = json.load(sys.stdin)
+          nums = []
+          for r in rels:
+              tag = r.get('tag_name', '')
+              m = re.match(r'^n(\d+\.\d+)$', tag)
+              if m:
+                  nums.append(tuple(map(int, m.group(1).split('.'))))
+          latest = max(nums)
+          print(f'n{latest[0]}.{latest[1]}')
+          ")
+          echo "yt-dlp=${YT_DLP_VER}" >> "$GITHUB_OUTPUT"
+          echo "ffmpeg=${FFMPEG_LINE}" >> "$GITHUB_OUTPUT"
+
+      - name: Cache tools (yt-dlp + ffmpeg)
+        id: tools
+        uses: actions/cache@v6
+        with:
+          path: ~/.local/tools
+          key: tools-${{ runner.os }}-yt-${{ steps.versions.outputs.yt-dlp }}-ffmpeg-${{ steps.versions.outputs.ffmpeg }}
+          # Fall back to any older matching prefix if the exact
+          # version key has expired.
+          restore-keys: |
+            tools-${{ runner.os }}-yt-${{ steps.versions.outputs.yt-dlp }}-
+            tools-${{ runner.os }}-
+
+      - name: Install yt-dlp + ffmpeg
+        if: steps.tools.outputs.cache-hit != 'true'
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.local/tools
+          # yt-dlp: single static binary from upstream releases.
+          curl -fsSL -o ~/.local/tools/yt-dlp \
+            "https://github.com/yt-dlp/yt-dlp/releases/download/${{ steps.versions.outputs.yt-dlp }}/yt-dlp_linux"
+          chmod +x ~/.local/tools/yt-dlp
+          # ffmpeg: BtbN's static build for the resolved major.minor.
+          LINE="${{ steps.versions.outputs.ffmpeg }}"           # e.g. n8.1
+          LINE_NUM="${LINE#n}"                                  # 8.1
+          curl -fsSL -o /tmp/ffmpeg.tar.xz \
+            "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-${LINE}-latest-linux64-gpl-${LINE_NUM}.tar.xz"
+          tar xJf /tmp/ffmpeg.tar.xz -C /tmp
+          mv "/tmp/ffmpeg-${LINE}-latest-linux64-gpl/bin/ffmpeg" ~/.local/tools/ffmpeg
+          mv "/tmp/ffmpeg-${LINE}-latest-linux64-gpl/bin/ffprobe" ~/.local/tools/ffprobe
+          rm -rf /tmp/ffmpeg-${LINE}-latest-linux64-gpl /tmp/ffmpeg.tar.xz
+          chmod +x ~/.local/tools/ffmpeg ~/.local/tools/ffprobe
+          ~/.local/tools/yt-dlp --version
+          ~/.local/tools/ffmpeg -version | head -1
+
+      - name: Add tools to PATH
+        run: echo "$HOME/.local/tools" >> "$GITHUB_PATH"
+
+      # ── Cookies decryption ─────────────────────────────────────────
+      - name: Decrypt cookies.txt
+        env:
+          COOKIES_PASS: ${{ secrets.COOKIES_PASS }}
+        run: |
+          set -euo pipefail
+          if [ -z "${COOKIES_PASS:-}" ]; then
+            echo "::warning::COOKIES_PASS secret empty; runner will skip --cookies"
+            exit 0
+          fi
+          if [ ! -f secrets/cookies.txt.enc ]; then
+            echo "::warning::secrets/cookies.txt.enc missing; runner will skip --cookies"
+            exit 0
+          fi
+          mkdir -p ~/.local/share/sharetube
+          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 \
+            -in secrets/cookies.txt.enc \
+            -out ~/.local/share/sharetube/cookies.txt \
+            -pass env:COOKIES_PASS
+          ls -la ~/.local/share/sharetube/cookies.txt
+          head -3 ~/.local/share/sharetube/cookies.txt
+
+      # ── Run ────────────────────────────────────────────────────────
+      - name: Run sharetube runner
+        env:
+          JOB_ID: ${{ github.event.client_payload.job_id || inputs.job_id }}
+          JOB_URL: ${{ github.event.client_payload.url }}
+          JOB_CONFIG_JSON: ${{ github.event.client_payload.config }}
+          BACKEND_URL: ${{ vars.WORKER_URL }}
+          INTERNAL_TOKEN: ${{ secrets.INTERNAL_TOKEN }}
+          COOKIES_PASS: ${{ secrets.COOKIES_PASS }}
+        run: |
+          set -euo pipefail
+          echo "JOB_ID=$JOB_ID"
+          echo "BACKEND_URL=$BACKEND_URL"
+          python -m runner
+
+      - name: Cleanup (wipe decrypted cookies)
+        if: always()
+        run: rm -f ~/.local/share/sharetube/cookies.txt
+
+      - name: Upload logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: sharetube-logs-${{ github.event.client_payload.job_id || inputs.job_id }}
+          path: |
+            ~/.local/share/sharetube/cookies.txt
+            /tmp/sharetube-*

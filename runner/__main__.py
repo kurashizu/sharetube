@@ -19,6 +19,7 @@ Expected environment:
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import sys
 import tempfile
@@ -72,7 +73,30 @@ def _maybe_decrypt_cookies() -> Path | None:
 
 
 async def run_pipeline() -> int:
-    cfg = config.Config.from_env()
+    try:
+        cfg = config.Config.from_env()
+    except Exception as e:
+        # Bootstrap a backend just to push a useful error before
+        # dying. We don't have auth creds yet, so we read them
+        # leniently from the env and skip the push if they're
+        # missing.
+        token = os.environ.get("INTERNAL_TOKEN", "").strip()
+        url = os.environ.get("BACKEND_URL", "").strip()
+        job_id = os.environ.get("JOB_ID", "").strip()
+        print(f"Config error: {type(e).__name__}: {e}", file=sys.stderr)
+        if token and url and job_id:
+            import urllib.request
+            req = urllib.request.Request(
+                f"{url.rstrip('/')}/api/internal/update",
+                data=json.dumps({"job_id": job_id, "status": "error", "error": f"config: {e}"}).encode(),
+                method="POST",
+                headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+            )
+            try:
+                urllib.request.urlopen(req, timeout=10).read()
+            except Exception:
+                pass
+        return 1
     print(f"sharetube-runner {cfg.job_id}: {cfg.url}")
 
     be = backend.Backend(cfg.backend_url, cfg.internal_token, cfg.job_id)

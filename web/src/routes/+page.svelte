@@ -49,11 +49,15 @@
   <meta name="description" content="Download, transcode (VAAPI h264), and share a video URL in one click." />
 </svelte:head>
 
-<main class="page">
+<div class="app">
   <Header onOpenSettings={openSettings} />
-  <Hero />
-  <QueueDrawer />
-  <JobCard />
-</main>
+  <div class="layout">
+    <main class="main">
+      <Hero />
+      <JobCard />
+    </main>
+    <QueueDrawer />
+  </div>
+</div>
 
 <SettingsModal bind:open={settingsOpen} onClose={closeSettings} />

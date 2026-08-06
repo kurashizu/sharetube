@@ -61,7 +61,8 @@ body {
   background:
     radial-gradient(ellipse 80% 60% at 50% 0%, rgba(124, 158, 255, 0.06), transparent 60%),
     var(--bg);
-  overflow: hidden;
+  overflow-y: auto;
+  overflow-x: hidden;
 }
 
 input,
@@ -99,6 +100,33 @@ a:hover {
 }
 
 /* ── layout ───────────────────────────────────────────────────────── */
+
+.app {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+}
+
+.layout {
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 20px;
+  padding: 24px;
+  width: 100%;
+  max-width: 1180px;
+  margin: 0 auto;
+  flex: 1 1 auto;
+}
+
+.main {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  min-width: 0;
+  max-width: 760px;
+}
 
 .app-header {
   flex: 0 0 auto;
@@ -663,44 +691,42 @@ a:hover {
   font-family: var(--font-mono);
 }
 
-/* ── queue drawer ─────────────────────────────────────────────────── */
+/* ── sidebar (queue & history) ────────────────────────────────────── */
 
-.queue-drawer {
+.sidebar {
+  flex: 0 0 320px;
+  width: 320px;
+  display: flex;
+  flex-direction: column;
   background: var(--panel);
-  border-top: 1px solid var(--border);
-  flex: 0 0 auto;
-  z-index: 10;
-  box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-2);
+  position: sticky;
+  top: 20px;
+  max-height: calc(100vh - 40px);
+  overflow: hidden;
 }
 
-.queue-drawer.empty {
-  display: none;
-}
-
-.queue-toggle {
+.sidebar-head {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 10px;
-  width: 100%;
-  padding: 12px 20px;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--border);
+  flex: 0 0 auto;
+}
+
+.sidebar-title {
   font-size: 12px;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.08em;
   color: var(--text-dim);
-  transition: color 0.15s, background 0.15s;
 }
 
-.queue-toggle:hover {
-  color: var(--text);
-  background: var(--panel-2);
-}
-
-.queue-label {
-  flex: 0 0 auto;
-}
-
-.queue-count {
+.sidebar-count {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -712,48 +738,50 @@ a:hover {
   color: var(--accent);
   font-size: 11px;
   font-weight: 700;
-  letter-spacing: 0;
 }
 
-.queue-chevron {
-  margin-left: auto;
-  font-size: 11px;
-  transition: transform 0.2s;
-}
-
-.queue-drawer.collapsed .queue-chevron {
-  transform: rotate(-90deg);
-}
-
-.queue-body {
+.sidebar-body {
   display: flex;
   flex-direction: column;
-  padding: 6px 14px 12px;
-  max-height: 280px;
-  overflow-y: auto;
   gap: 4px;
+  padding: 8px 10px 12px;
+  overflow-y: auto;
+  flex: 1 1 auto;
+  min-height: 0;
 }
 
-.queue-drawer.collapsed .queue-body {
-  display: none;
-}
-
-.queue-body::-webkit-scrollbar {
+.sidebar-body::-webkit-scrollbar {
   width: 8px;
 }
-.queue-body::-webkit-scrollbar-track {
+.sidebar-body::-webkit-scrollbar-track {
   background: transparent;
 }
-.queue-body::-webkit-scrollbar-thumb {
+.sidebar-body::-webkit-scrollbar-thumb {
   background: var(--border-strong);
   border-radius: 4px;
+}
+
+.sidebar-group-label {
+  padding: 8px 8px 4px;
+  font-size: 10.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+}
+
+.sidebar-empty {
+  padding: 24px 16px;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 12.5px;
 }
 
 .queue-item {
   display: grid;
   grid-template-columns: auto 1fr auto auto;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   padding: 8px 10px;
   border-radius: var(--radius-sm);
   background: transparent;
@@ -1027,6 +1055,23 @@ a:hover {
 
 /* ── responsive ───────────────────────────────────────────────────── */
 
+@media (max-width: 900px) {
+  .layout {
+    flex-direction: column;
+    align-items: stretch;
+    padding: 16px;
+  }
+  .main {
+    max-width: none;
+  }
+  .sidebar {
+    flex: 0 0 auto;
+    width: 100%;
+    max-height: 360px;
+    position: static;
+  }
+}
+
 @media (max-width: 640px) {
   .app-header {
     padding: 12px 14px;
@@ -1066,12 +1111,6 @@ a:hover {
   }
   .phase-meta {
     text-align: left;
-  }
-  .queue-toggle {
-    padding: 10px 14px;
-  }
-  .queue-body {
-    padding: 4px 10px 12px;
   }
   .queue-item {
     grid-template-columns: auto 1fr auto;

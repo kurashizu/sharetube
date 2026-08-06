@@ -3,10 +3,16 @@
   import { activeJob } from '$lib/stores/active.svelte';
   import type { JobEntry, JobStatus } from '$lib/types';
 
-  let collapsed = $state(false);
+  // Queue = pending/running jobs (newest first).
+  const queued = $derived(
+    jobsStore.jobs
+      .filter((j) => j.status === 'pending' || j.status === 'running')
+      .slice()
+      .sort((a, b) => b.created_at - a.created_at)
+  );
 
-  // History list (most-recent finished / failed jobs).
-  const finished = $derived(
+  // History = finished / failed jobs (most-recent first).
+  const history = $derived(
     jobsStore.jobs
       .filter((j) => j.status === 'done' || j.status === 'error')
       .slice()
@@ -42,44 +48,63 @@
   function select(j: JobEntry) {
     void activeJob.set(j.id);
   }
-
-  function toggle() {
-    collapsed = !collapsed;
-  }
 </script>
 
-<aside class="queue-drawer {finished.length === 0 ? 'empty' : ''} {collapsed ? 'collapsed' : ''}">
-  <button class="queue-toggle" onclick={toggle}>
-    <span class="queue-label">History</span>
-    <span class="queue-count">{finished.length}</span>
-    <span class="queue-chevron">▾</span>
-  </button>
+<aside class="sidebar">
+  <div class="sidebar-head">
+    <span class="sidebar-title">Queue &amp; History</span>
+    <span class="sidebar-count">{queued.length + history.length}</span>
+  </div>
 
-  <div class="queue-body">
-    {#each finished as j (j.id)}
-      <div
-        class="queue-item {activeJob.jobId === j.id ? 'active' : ''}"
-        onclick={() => select(j)}
-        role="button"
-        tabindex="0"
-        onkeydown={(e) => e.key === 'Enter' && select(j)}
-      >
-        <span class="queue-dot {dotClass(j.status)}"></span>
-        <span class="queue-item-url">{shortUrl(j.url)}</span>
-        <span class="queue-item-meta">
-          {j.status === 'done' ? '✓' : j.status === 'error' ? '✗' : pct(j) + '%'}
-        </span>
-        {#if j.share_url && j.status === 'done'}
-          <a
-            href={j.direct_url ?? j.share_url}
-            class="queue-action-btn"
-            onclick={(e) => e.stopPropagation()}
-            title="Open share link"
-            target="_blank"
-            rel="noopener"
-          >↗</a>
-        {/if}
-      </div>
-    {/each}
+  <div class="sidebar-body">
+    {#if queued.length > 0}
+      <div class="sidebar-group-label">Queue</div>
+      {#each queued as j (j.id)}
+        <div
+          class="queue-item {activeJob.jobId === j.id ? 'active' : ''}"
+          onclick={() => select(j)}
+          role="button"
+          tabindex="0"
+          onkeydown={(e) => e.key === 'Enter' && select(j)}
+        >
+          <span class="queue-dot {dotClass(j.status)}"></span>
+          <span class="queue-item-url">{shortUrl(j.url)}</span>
+          <span class="queue-item-meta">{pct(j)}%</span>
+        </div>
+      {/each}
+    {/if}
+
+    {#if history.length > 0}
+      <div class="sidebar-group-label">History</div>
+      {#each history as j (j.id)}
+        <div
+          class="queue-item {activeJob.jobId === j.id ? 'active' : ''}"
+          onclick={() => select(j)}
+          role="button"
+          tabindex="0"
+          onkeydown={(e) => e.key === 'Enter' && select(j)}
+        >
+          <span class="queue-dot {dotClass(j.status)}"></span>
+          <span class="queue-item-url">{shortUrl(j.url)}</span>
+          <span class="queue-item-meta">
+            {j.status === 'done' ? '✓' : j.status === 'error' ? '✗' : pct(j) + '%'}
+          </span>
+          {#if j.share_url && j.status === 'done'}
+            <a
+              href={j.direct_url ?? j.share_url}
+              class="queue-action-btn"
+              onclick={(e) => e.stopPropagation()}
+              title="Open share link"
+              target="_blank"
+              rel="noopener"
+            >↗</a>
+          {/if}
+        </div>
+      {/each}
+    {/if}
+
+    {#if queued.length === 0 && history.length === 0}
+      <div class="sidebar-empty">No jobs yet — paste a URL to get started.</div>
+    {/if}
   </div>
 </aside>

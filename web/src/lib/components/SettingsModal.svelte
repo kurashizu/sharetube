@@ -103,7 +103,7 @@
 
           <div class="field">
             <label class="field-label" for="cfg-vbr">Video bitrate</label>
-            <input id="cfg-vbr" class="field-input" type="text" bind:value={draft.video_bitrate} placeholder="2M" />
+            <input id="cfg-vbr" class="field-input" type="text" bind:value={draft.video_bitrate} placeholder="1M" />
           </div>
 
           <div class="field">

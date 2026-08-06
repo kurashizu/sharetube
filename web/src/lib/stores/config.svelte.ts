@@ -22,9 +22,9 @@ export const TTL_PRESETS: ReadonlyArray<readonly [string, number]> = [
 export const DEFAULT_SETTINGS: UserSettings = {
   max_resolution: '1080p',
   output_resolution: '1080p',
-  video_bitrate: '2M',
+  video_bitrate: '1M',
   audio_bitrate: '128k',
-  ttl_seconds: 24 * 60 * 60,
+  ttl_seconds: 6 * 60 * 60,
   // Watermark is always applied (branding); not a user choice.
   watermark_enabled: true,
   watermark_line1: 'sharetube.krsz.in',

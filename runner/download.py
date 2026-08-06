@@ -176,15 +176,24 @@ def _run_once(
             raise RuntimeError("yt-dlp produced no output file")
         final_path = candidates[-1]
 
-    title = final_path.stem
+    # Friendly title: prefer yt-dlp's --print metadata (independent of
+    # the on-disk name which includes the "-[id]" suffix). Fall back
+    # to the filename stem minus the suffix on failure.
+    title = ""
     try:
         title_proc = subprocess.run(
             [cfg.ytdlp_bin, "--print", "%(title)s", "--no-download", url],
             capture_output=True, text=True, check=True, timeout=15,
         )
-        title = title_proc.stdout.strip() or title
+        title = title_proc.stdout.strip()
     except Exception:
         pass
+    if not title:
+        title = final_path.stem
+        # Strip the "-[videoId]" suffix the output template appends.
+        idx = title.rfind("-[")
+        if idx != -1:
+            title = title[:idx]
     return DownloadResult(path=final_path, title=title)
 
 

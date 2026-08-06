@@ -45,19 +45,19 @@ jobs:
             | python3 -c "import json,sys;print(json.load(sys.stdin)['tag_name'])")
           echo "v=${YT_DLP_VER}" >> "$GITHUB_OUTPUT"
 
-      - name: Cache tools (yt-dlp + ffmpeg)
+      - name: Cache tools (yt-dlp + ffmpeg + deno)
         id: tools
         uses: actions/cache@v6
         with:
           path: ~/.local/tools
-          key: tools-${{ runner.os }}-yt-${{ steps.yt.outputs.v }}-ffmpeg-master
+          key: tools-${{ runner.os }}-yt-${{ steps.yt.outputs.v }}-ffmpeg-master-deno-${{ vars.DENO_VER }}
           # Fall back to any older yt-dlp if the exact version key has
           # expired (we then refresh yt-dlp but keep ffmpeg).
           restore-keys: |
             tools-${{ runner.os }}-yt-${{ steps.yt.outputs.v }}-
             tools-${{ runner.os }}-
 
-      - name: Install yt-dlp + ffmpeg
+      - name: Install yt-dlp + ffmpeg + deno
         if: steps.tools.outputs.cache-hit != 'true'
         run: |
           set -euo pipefail
@@ -77,16 +77,25 @@ jobs:
           rm -rf /tmp/ffmpeg-master-latest-linux64-gpl /tmp/ffmpeg.tar.xz
           chmod +x ~/.local/tools/ffmpeg ~/.local/tools/ffprobe
           # OmniProxy client: local SOCKS5 that tunnels over WebSocket to
-          # the Oracle server, escaping the Azure-IP bot wall.
+          # the Oracle server, unlocking the Azure-IP bot wall.
           curl -fsSL -o /tmp/omni.tar.xz \
             "https://github.com/kurashizu/OmniProxy/releases/download/${{ vars.OMNIPROXY_VER }}/omni-proxy-linux-x86_64.tar.xz"
           tar xJf /tmp/omni.tar.xz -C /tmp
           mv /tmp/dist/client ~/.local/tools/omni-client
           chmod +x ~/.local/tools/omni-client
           rm -f /tmp/omni.tar.xz
+          # deno: JS runtime required by yt-dlp to solve YouTube's
+          # n/signature challenges. yt-dlp enables deno by default so
+          # just having it on PATH is enough.
+          curl -fsSL -o /tmp/deno.zip \
+            "https://github.com/denoland/deno/releases/download/${{ vars.DENO_VER }}/deno-x86_64-unknown-linux-gnu.zip"
+          unzip -o /tmp/deno.zip -d ~/.local/tools > /dev/null
+          chmod +x ~/.local/tools/deno
+          rm -f /tmp/deno.zip
           ~/.local/tools/yt-dlp --version
           ~/.local/tools/ffmpeg -version | head -1
           ~/.local/tools/omni-client --version
+          ~/.local/tools/deno --version | head -1
 
       - name: Add tools to PATH
         run: echo "$HOME/.local/tools" >> "$GITHUB_PATH"

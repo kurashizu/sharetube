@@ -33,10 +33,11 @@ jobs:
           python-version: "3.13"
 
       # ── Tool versions & cache ────────────────────────────────────────
-      # yt-dlp has clean numbered tags (`YYYY.MM.DD`); resolved at run
-      # time so the cache key reflects the current release. ffmpeg
-      # comes from BtbN's rolling "latest" build — its URL is stable,
-      # so we cache by a fixed key (explicit cache-clear upgrades it).
+      # Only yt-dlp is version-checked at run time (it has clean
+      # numbered tags and updates often). Everything else — ffmpeg
+      # (BtbN rolling build), deno, omni-client, CJK fonts — is
+      # effectively frozen and lives under a stable cache key, so
+      # cached runs skip the downloads entirely.
       - name: Resolve yt-dlp version
         id: yt
         run: |
@@ -45,30 +46,44 @@ jobs:
             | python3 -c "import json,sys;print(json.load(sys.stdin)['tag_name'])")
           echo "v=${YT_DLP_VER}" >> "$GITHUB_OUTPUT"
 
-      - name: Cache tools (yt-dlp + ffmpeg + deno)
-        id: tools
+      # yt-dlp alone — new version = new key, restore falls back to the
+      # previous release so we can update the binary in place.
+      - name: Cache yt-dlp
+        id: ytdlp
         uses: actions/cache@v6
         with:
-          path: ~/.local/tools
-          key: tools-${{ runner.os }}-yt-${{ steps.yt.outputs.v }}-ffmpeg-master-deno-${{ vars.DENO_VER }}
-          # Fall back to any older yt-dlp if the exact version key has
-          # expired (we then refresh yt-dlp but keep ffmpeg).
+          path: ~/.local/tools/yt-dlp
+          key: ytdlp-${{ runner.os }}-${{ steps.yt.outputs.v }}
           restore-keys: |
-            tools-${{ runner.os }}-yt-${{ steps.yt.outputs.v }}-
-            tools-${{ runner.os }}-
+            ytdlp-${{ runner.os }}-
 
-      - name: Install yt-dlp + ffmpeg + deno
-        if: steps.tools.outputs.cache-hit != 'true'
+      # Everything else (ffmpeg, deno, omni-client, fonts) — frozen;
+      # bump the FFIX suffix manually when you want to refresh them.
+      - name: Cache frozen tools
+        id: fixed
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.local/tools
+            ~/.local/share/fonts
+          key: tools-fixed-${{ runner.os }}-deno-${{ vars.DENO_VER }}-omni-${{ vars.OMNIPROXY_VER }}-ffmpeg-master-1
+
+      - name: Install yt-dlp
+        if: steps.ytdlp.outputs.cache-hit != 'true'
         run: |
           set -euo pipefail
           mkdir -p ~/.local/tools
-          # yt-dlp: single static binary from upstream releases.
           curl -fsSL -o ~/.local/tools/yt-dlp \
             "https://github.com/yt-dlp/yt-dlp/releases/download/${{ steps.yt.outputs.v }}/yt-dlp_linux"
           chmod +x ~/.local/tools/yt-dlp
+          ~/.local/tools/yt-dlp --version
+
+      - name: Install frozen tools (ffmpeg + deno + omni-client)
+        if: steps.fixed.outputs.cache-hit != 'true'
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.local/tools
           # ffmpeg: BtbN's rolling "latest" build (master branch).
-          # The URL is stable; cache key above is explicit so we don't
-          # re-download unless someone changes the workflow.
           curl -fsSL -o /tmp/ffmpeg.tar.xz \
             "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-linux64-gpl.tar.xz"
           tar xJf /tmp/ffmpeg.tar.xz -C /tmp
@@ -85,17 +100,42 @@ jobs:
           chmod +x ~/.local/tools/omni-client
           rm -f /tmp/omni.tar.xz
           # deno: JS runtime required by yt-dlp to solve YouTube's
-          # n/signature challenges. yt-dlp enables deno by default so
-          # just having it on PATH is enough.
+          # n/signature challenges.
           curl -fsSL -o /tmp/deno.zip \
             "https://github.com/denoland/deno/releases/download/${{ vars.DENO_VER }}/deno-x86_64-unknown-linux-gnu.zip"
           unzip -o /tmp/deno.zip -d ~/.local/tools > /dev/null
           chmod +x ~/.local/tools/deno
           rm -f /tmp/deno.zip
-          ~/.local/tools/yt-dlp --version
           ~/.local/tools/ffmpeg -version | head -1
           ~/.local/tools/omni-client --version
           ~/.local/tools/deno --version | head -1
+
+      # CJK fonts for the video watermark (drawtext) — also frozen, so
+      # cached as ~/.local/share/fonts; the cache restore puts them
+      # back without reinstalling. fc-match then confirms they're
+      # visible to fontconfig.
+      - name: Install CJK fonts (cached)
+        run: |
+          set -euo pipefail
+          if [ -d "$HOME/.local/share/fonts" ] && [ "$(ls -A "$HOME/.local/share/fonts" | wc -l)" -gt 0 ]; then
+            echo "fonts restored from cache"
+          else
+            mkdir -p "$HOME/.local/share/fonts"
+            # Download the .deb without installing, extract the TTCs.
+            cd /tmp
+            curl -fsSL -o noto-cjk.deb \
+              "https://archive.ubuntu.com/ubuntu/pool/main/f/fonts-noto-cjk/fonts-noto-cjk_20230817+repack1-3_all.deb" || \
+            curl -fsSL -o noto-cjk.deb \
+              "https://archive.ubuntu.com/ubuntu/pool/main/f/fonts-noto-cjk/fonts-noto-cjk_20220127+repack1-1_all.deb"
+            dpkg-deb -x noto-cjk.deb /tmp/noto-cjk-extract
+            find /tmp/noto-cjk-extract/usr/share/fonts -name '*.ttc' -o -name '*.otf' | while read f; do
+              cp "$f" "$HOME/.local/share/fonts/"
+            done
+            rm -rf /tmp/noto-cjk.deb /tmp/noto-cjk-extract
+          fi
+          fc-cache -f "$HOME/.local/share/fonts" > /dev/null 2>&1 || true
+          echo "fonts: $(ls "$HOME/.local/share/fonts")"
+          fc-match -f '%{file}\n' 'Noto Sans CJK SC' | head -1
 
       - name: Add tools to PATH
         run: echo "$HOME/.local/tools" >> "$GITHUB_PATH"

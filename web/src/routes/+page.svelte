@@ -14,25 +14,19 @@
   onMount(() => {
     configStore.load();
     jobsStore.start();
-    // Auto-focus the most-recent active job on first poll so the user
-    // sees their work right away.
-    const t = setTimeout(() => {
-      if (!activeJob.jobId) {
-        const a = jobsStore.active;
-        if (a) activeJob.set(a.id);
-      }
-    }, 1200);
-    return () => clearTimeout(t);
   });
 
   onDestroy(() => {
     jobsStore.stop();
   });
 
-  // Whenever the polled jobs list updates, mirror the active entry
-  // into the activeJob store (delta-merged, rAF-coalesced).
+  // Auto-focus the most-recent active (pending/running) job whenever
+  // the user hasn't manually picked one. Runs on every poll, so a
+  // newly submitted job becomes visible immediately.
   $effect(() => {
-    activeJob.sync(jobsStore.jobs);
+    if (activeJob.jobId) return;
+    const a = jobsStore.active;
+    if (a) activeJob.set(a.id);
   });
 
   function openSettings() {

@@ -111,12 +111,32 @@ def _parse_bitrate(s: str) -> int:
 
 def _find_cjk_font() -> Optional[str]:
     for p in (
+        # Cached in ~/.local/share/fonts by the workflow (frozen cache)
+        str(Path.home() / ".local" / "share" / "fonts" / "NotoSansCJK-Regular.ttc"),
+        str(Path.home() / ".local" / "share" / "fonts" / "NotoSansCJK-Bold.ttc"),
+        # Ubuntu 24.04 (GH ubuntu-latest) — fonts-noto-cjk package
+        "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+        "/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc",
+        # Arch / Manjaro
         "/usr/share/fonts/noto-cjk/NotoSansCJK-Regular.ttc",
+        "/usr/share/fonts/noto-cjk/NotoSansCJK-Bold.ttc",
         "/usr/share/fonts/google-noto-cjk/NotoSansCJK-Regular.ttc",
+        # Generic Noto / DejaVu fallbacks (ASCII-only glyphs)
         "/usr/share/fonts/noto/NotoSans-Regular.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
     ):
         if Path(p).exists():
             return p
+    # Last resort: ask fontconfig for any usable face.
+    try:
+        out = subprocess.run(
+            ["fc-match", "-f", "%{file}", "sans-serif"],
+            capture_output=True, text=True, timeout=5,
+        ).stdout.strip()
+        if out and Path(out).exists():
+            return out
+    except Exception:  # noqa: BLE001
+        pass
     return None
 
 
@@ -309,8 +329,12 @@ def transcode(
     use_watermark = cfg.job_cfg.watermark_enabled
     font = _find_cjk_font() if use_watermark else None
     if use_watermark and not font:
-        use_watermark = False
-        backend.log(["no CJK font found; watermark disabled"])
+        # Watermark is the default behaviour; never silently drop it.
+        # Missing font is a hard error so the CI install step can't be
+        # forgotten again.
+        raise RuntimeError("watermark enabled but no usable font found")
+    if use_watermark:
+        backend.log([f"watermark font: {font}"])
 
     cmd = _build_cmd(
         src, dst, cfg, src_kbps, effective_resolution,

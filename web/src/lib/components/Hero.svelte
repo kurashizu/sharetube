@@ -35,11 +35,12 @@
           video_bitrate: cfg.video_bitrate,
           audio_bitrate: cfg.audio_bitrate,
           ttl_seconds: cfg.ttl_seconds,
-          watermark_enabled: cfg.watermark_enabled,
-          watermark_line1: cfg.watermark_line1,
-          watermark_line2: cfg.watermark_line2,
-          watermark_font_size: cfg.watermark_font_size,
-          // Cookies are always sent (bot wall); not a user choice.
+          // Watermark and cookies are always on (branding + bot wall);
+          // sent from defaults, not user-toggled.
+          watermark_enabled: true,
+          watermark_line1: 'sharetube.krsz.in',
+          watermark_line2: '{title} · {resolution} · {duration}',
+          watermark_font_size: 28,
           use_cookies: true
         }
       });

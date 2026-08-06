@@ -11,6 +11,7 @@
 //                                          adjacent pending job
 
 import { error, json, type RequestHandler } from '@sveltejs/kit';
+import { cleanupZombies } from '$lib/server/dispatch';
 
 interface Env {
   DB: D1Database;
@@ -79,6 +80,7 @@ function toJson(row: NonNullable<Awaited<ReturnType<typeof getRow>>>) {
 
 export const GET: RequestHandler = async ({ platform, params }) => {
   const env = platform!.env;
+  await cleanupZombies(env);
   const row = await getRow(env, params.id!);
   if (!row) throw error(404, 'job not found');
   return json(toJson(row));

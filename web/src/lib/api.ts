@@ -77,3 +77,10 @@ export async function deleteJob(id: string): Promise<void> {
     await fetch(`/api/jobs/${encodeURIComponent(id)}`, { method: 'DELETE' })
   );
 }
+
+/** Clear all finished history (done / error / cancelled). */
+export async function clearHistory(): Promise<void> {
+  await asJson<{ ok: boolean }>(
+    await fetch('/api/jobs', { method: 'DELETE' })
+  );
+}

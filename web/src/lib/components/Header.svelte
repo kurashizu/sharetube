@@ -1,5 +1,6 @@
 <script lang="ts">
   import { activeJob } from '$lib/stores/active.svelte';
+  import { jobsStore } from '$lib/stores/jobs.svelte';
 
   interface Props {
     onOpenSettings: () => void;
@@ -7,9 +8,16 @@
 
   let { onOpenSettings }: Props = $props();
 
+  // Derive the watched job's status straight from the polled list.
+  const job = $derived(
+    activeJob.jobId
+      ? jobsStore.jobs.find((j) => j.id === activeJob.jobId) ?? null
+      : (jobsStore.active ?? null)
+  );
+
   // Map job status to pill class + human label.
   const statusInfo = $derived.by((): { class: string; label: string } => {
-    const status = activeJob.job?.status ?? 'idle';
+    const status = job?.status ?? 'idle';
     switch (status) {
       case 'running':
       case 'pending':

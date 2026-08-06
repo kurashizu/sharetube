@@ -1,13 +1,14 @@
-// Job list / submit endpoints.
+// Job list / submit / clear-history endpoints.
 //
-// GET  /api/jobs           → [{ ... }, ...] (newest-first; capped)
-// POST /api/jobs           → { id, status }  (also dispatches GH workflow)
+// GET    /api/jobs           → [{ ... }, ...] (newest-first; capped)
+// POST   /api/jobs           → { id, status }  (queues + schedules a GH run)
+// DELETE /api/jobs           → clear finished history (done/error/cancelled)
 //
-// GET also performs *zombie detection*: pending jobs older than
-// ZOMBIE_PENDING_S and running jobs whose last update is older than
-// ZOMBIE_RUNNING_S are flipped to `error` ("runner never picked it up"
-// / "runner lost contact"). This prevents the UI from showing a job as
-// forever "working" when a workflow died without a final update.
+// The Worker is the scheduler: at most MAX_PARALLEL GH runs at once
+// (see lib/server/dispatch.ts). GET also performs zombie detection —
+// pending jobs that were never dispatched, and running jobs whose last
+// update is stale, are flipped to `error` so the UI never shows a job
+// as forever "working".
 
 import { error, json, type RequestHandler } from '@sveltejs/kit';
 import type {
@@ -15,16 +16,13 @@ import type {
   CreateJobResponse,
   JobEntry
 } from '$lib/types';
+import { cleanupZombies, dispatchPending } from '$lib/server/dispatch';
 
 interface Env {
   DB: D1Database;
   GH_REPO?: string;
   GH_DISPATCH_TOKEN?: string;
 }
-
-const ZOMBIE_PENDING_S = 10 * 60;   // dispatch → runner start is ~1-2 min
-const ZOMBIE_RUNNING_S = 30 * 60;   // heartbeat via pushes; 30 min without
-                                    // any update means the runner died
 
 interface Counters {
   status: string;
@@ -57,8 +55,6 @@ function toJobEntry(
   const config = JSON.parse(row.config_json || '{}');
   const total =
     row.dl_pct * 0.3 + row.tx_pct * 0.5 + row.up_pct * 0.2;
-  // We use `phase` and per-phase pct to drive the UI; phase_meta is
-  // a single string carried along with the latest push.
   const phase: 'Download' | 'Transcode' | 'Upload' | null =
     (row.phase as 'Download' | 'Transcode' | 'Upload' | null) ?? null;
   const phase_progress = {
@@ -89,30 +85,16 @@ function toJobEntry(
   } as JobEntry;
 }
 
+const JOB_SELECT = `SELECT id, url, status, phase, dl_pct, tx_pct, up_pct, meta,
+            log_lines, share_url, direct_url, expires_at, error,
+            config_json, queue_pos, title, cancelled, created_at, updated_at`;
+
 export const GET: RequestHandler = async ({ platform }) => {
   const env = platform!.env;
-  const now = Math.floor(Date.now() / 1000);
-
-  // ── zombie detection ────────────────────────────────────────────
-  // Pending too long = the GH dispatch never turned into a running
-  // workflow (or it died before its first push).
-  await env.DB.prepare(
-    `UPDATE jobs SET status = 'error', error = 'Runner never picked up the job (dispatch timed out).',
-            updated_at = ?
-      WHERE status = 'pending' AND created_at < ?`
-  ).bind(now, now - ZOMBIE_PENDING_S).run();
-  // Running without any progress update for a long time = the runner
-  // crashed mid-pipeline without a final error push.
-  await env.DB.prepare(
-    `UPDATE jobs SET status = 'error', error = 'Runner lost contact (no updates for 30 min).',
-            updated_at = ?
-      WHERE status = 'running' AND updated_at < ? AND cancelled = 0`
-  ).bind(now, now - ZOMBIE_RUNNING_S).run();
+  await cleanupZombies(env);
 
   const { results } = await env.DB.prepare(
-    `SELECT id, url, status, phase, dl_pct, tx_pct, up_pct, meta,
-            log_lines, share_url, direct_url, expires_at, error,
-            config_json, queue_pos, title, cancelled, created_at, updated_at
+    `${JOB_SELECT}
        FROM jobs
       ORDER BY created_at DESC
       LIMIT 200`
@@ -157,7 +139,6 @@ export const POST: RequestHandler = async ({ request, platform }) => {
   const id = crypto.randomUUID();
   const now = Math.floor(Date.now() / 1000);
 
-  // Next queue position among pending jobs.
   const qrow = await env.DB.prepare(
     `SELECT COALESCE(MAX(queue_pos), 0) + 1 AS next FROM jobs WHERE status = 'pending'`
   ).first<{ next: number }>();
@@ -167,10 +148,10 @@ export const POST: RequestHandler = async ({ request, platform }) => {
     `INSERT INTO jobs
        (id, url, status, phase, dl_pct, tx_pct, up_pct, meta,
         log_lines, share_url, direct_url, expires_at, error,
-        config_json, queue_pos, title, cancelled, created_at, updated_at)
+        config_json, queue_pos, title, cancelled, dispatched, created_at, updated_at)
      VALUES (?, ?, 'pending', NULL, 0, 0, 0, '',
              '[]', NULL, NULL, NULL, NULL,
-             ?, ?, NULL, 0, ?, ?)`
+             ?, ?, NULL, 0, 0, ?, ?)`
   )
     .bind(
       id,
@@ -182,47 +163,18 @@ export const POST: RequestHandler = async ({ request, platform }) => {
     )
     .run();
 
-  // Trigger the GitHub Actions workflow via `repository_dispatch`.
-  // The Worker holds a PAT with `repo`+`workflow` scopes; the action
-  // itself reads `INTERNAL_TOKEN` and `BACKEND_URL` from the *repo*
-  // secrets, so we never transmit those on the dispatch wire.
-  const repo = env.GH_REPO ?? 'kurashizu/sharetube';
-  const token = env.GH_DISPATCH_TOKEN;
-  if (token) {
-    try {
-      const r = await fetch(
-        `https://api.github.com/repos/${repo}/dispatches`,
-        {
-          method: 'POST',
-          headers: {
-            Authorization: `Bearer ${token}`,
-            Accept: 'application/vnd.github+json',
-            'X-GitHub-Api-Version': '2022-11-28',
-            'User-Agent': 'sharetube-worker'
-          },
-          body: JSON.stringify({
-            event_type: 'sharetube-job',
-            client_payload: {
-              job_id: id,
-              url: body.url,
-              config: JSON.stringify(body.config ?? {}),
-            }
-          })
-        }
-      );
-      if (!r.ok && r.status !== 204) {
-        const txt = await r.text().catch(() => '');
-        console.warn(
-          `GH dispatch ${repo} → ${r.status} ${r.statusText}: ${txt.slice(0, 200)}`
-        );
-      }
-    } catch (e) {
-      console.warn('GH dispatch failed:', (e as Error).message);
-    }
-  } else {
-    console.warn('GH_DISPATCH_TOKEN not set; job queued but never picked up.');
-  }
+  // Schedule: fill any free runner slots from the queue.
+  await dispatchPending(env);
 
   const res: CreateJobResponse = { id, status: 'pending' };
   return json(res);
+};
+
+/** Clear finished history (done / error / cancelled), keep queue. */
+export const DELETE: RequestHandler = async ({ platform }) => {
+  const env = platform!.env;
+  await env.DB.prepare(
+    `DELETE FROM jobs WHERE status IN ('done', 'error', 'cancelled')`
+  ).run();
+  return json({ ok: true });
 };

@@ -21,6 +21,7 @@
 // runner stop mid-pipeline when the user force-stops a job.
 
 import { json, type RequestHandler } from '@sveltejs/kit';
+import { dispatchPending } from '$lib/server/dispatch';
 
 interface Env {
   DB: D1Database;
@@ -148,6 +149,15 @@ export const POST: RequestHandler = async ({ request, platform }) => {
   )
     .bind(...binds)
     .run();
+
+  // A job left `running` (done / error) — backfill the freed slot.
+  if (
+    typeof body.status === 'string' &&
+    body.status !== 'running' &&
+    row.status === 'running'
+  ) {
+    await dispatchPending(env);
+  }
 
   return json({ ok: true, cancelled: row.cancelled ?? 0 });
 };

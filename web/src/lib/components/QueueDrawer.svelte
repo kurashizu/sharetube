@@ -1,7 +1,7 @@
 <script lang="ts">
   import { jobsStore } from '$lib/stores/jobs.svelte';
   import { activeJob } from '$lib/stores/active.svelte';
-  import { cancelJob, deleteJob, moveJob } from '$lib/api';
+  import { cancelJob, clearHistory, deleteJob, moveJob } from '$lib/api';
   import type { JobEntry, JobStatus } from '$lib/types';
 
   // PROCESSING = running (or cancelled-but-not-yet-dead) jobs.
@@ -80,6 +80,11 @@
     void moveJob(j.id, direction).then(() => jobsStore.refresh());
   }
 
+  function clearAll() {
+    if (!confirm(`Clear ${history.length} finished job(s) from history?`)) return;
+    void clearHistory().then(() => jobsStore.refresh());
+  }
+
   const total = $derived(processing.length + queue.length + history.length);
 </script>
 
@@ -132,7 +137,10 @@
     {/if}
 
     {#if history.length > 0}
-      <div class="sidebar-group-label">History</div>
+      <div class="sidebar-group-label history-label">
+        <span>History</span>
+        <button class="clear-btn" onclick={() => clearAll()} title="Clear all history">Clear all</button>
+      </div>
       {#each history as j (j.id)}
         <div
           class="queue-item {activeJob.jobId === j.id ? 'active' : ''}"

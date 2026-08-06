@@ -25,8 +25,9 @@ export const DEFAULT_SETTINGS: UserSettings = {
   video_bitrate: '2M',
   audio_bitrate: '128k',
   ttl_seconds: 24 * 60 * 60,
+  // Watermark is always applied (branding); not a user choice.
   watermark_enabled: true,
-  watermark_line1: 'KRSZ Share',
+  watermark_line1: 'sharetube.krsz.in',
   watermark_line2: '{title} · {resolution} · {duration}',
   watermark_font_size: 28,
   // Cookies are always used (bot wall). The option is no longer

@@ -7,6 +7,7 @@
 // has claimed them yet).
 
 import { json, type RequestHandler } from '@sveltejs/kit';
+import { dispatchPending } from '$lib/server/dispatch';
 
 interface Env {
   DB: D1Database;
@@ -36,6 +37,8 @@ export const POST: RequestHandler = async ({ platform, params }) => {
       `UPDATE jobs SET status = 'error', error = 'Cancelled by user (never started).',
               updated_at = ? WHERE id = ?`
     ).bind(now, id).run();
+    // A queued slot opened — schedule the next job in line.
+    await dispatchPending(env);
     return json({ ok: true, message: 'cancelled' });
   }
 

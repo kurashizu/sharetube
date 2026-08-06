@@ -79,7 +79,14 @@ class Backend:
         """Stop accepting new payloads and drain the queue one last
         time. Called from the runner's finally block."""
         self._closed = True
-        self._enqueue(_SHUTDOWN_SENTINEL)
+        # Queue the shutdown sentinel directly on the queue — the
+        # worker thread drains it and exits. (Sending it through
+        # _enqueue would hit the "closed" branch and send an empty
+        # API payload, causing HTTP 400.)
+        try:
+            self._queue.put_nowait(_SHUTDOWN_SENTINEL)
+        except Exception:
+            pass
         self._worker.join(timeout=drain_timeout)
         # Anything still left is dropped; the next push in a future
         # job (or via direct update_sync) will catch up.
@@ -98,6 +105,11 @@ class Backend:
     # ── internals ─────────────────────────────────────────────────────
 
     def _enqueue(self, payload: dict) -> None:
+        if payload is _SHUTDOWN_SENTINEL:
+            # Internal control signal for the worker thread — never an
+            # API payload. close() queues it directly; nothing sends it
+            # here.
+            return
         if self._closed:
             # After close: still allow direct update_sync to go through.
             if payload.get("_sync"):
@@ -143,20 +155,24 @@ class Backend:
                 "User-Agent": "sharetube-runner/0.1",
             },
         )
-        with urllib.request.urlopen(req, timeout=20) as r:
-            if r.status >= 400:
-                content = r.read(300).decode("utf-8", errors="replace")
-                logger.warning(
-                    "update → %s: %s; body=%s",
-                    r.status, r.reason, content,
-                )
-                return
-            try:
-                resp = json.loads(r.read().decode("utf-8", errors="replace"))
-                if resp.get("cancelled"):
-                    self._cancelled = True
-            except Exception:  # noqa: BLE001
-                pass
+        try:
+            with urllib.request.urlopen(req, timeout=20) as r:
+                if r.status >= 400:
+                    content = r.read(300).decode("utf-8", errors="replace")
+                    logger.warning(
+                        "update → %s: %s; body=%s",
+                        r.status, r.reason, content,
+                    )
+                    return
+                try:
+                    resp = json.loads(r.read().decode("utf-8", errors="replace"))
+                    if resp.get("cancelled"):
+                        self._cancelled = True
+                except Exception:  # noqa: BLE001
+                    pass
+        except Exception as e:  # noqa: BLE001
+            # urllib raises HTTPError for 4xx/5xx; log and continue.
+            logger.warning("update → %s", e)
 
 
 class JobCancelled(Exception):

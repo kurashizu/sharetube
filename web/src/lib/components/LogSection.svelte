@@ -1,5 +1,14 @@
 <script lang="ts">
   import { activeJob } from '$lib/stores/active.svelte';
+  import { jobsStore } from '$lib/stores/jobs.svelte';
+
+  // Derive straight from the polled list (same single source of truth
+  // as JobCard) so log lines always reflect the latest poll.
+  const job = $derived(
+    activeJob.jobId
+      ? jobsStore.jobs.find((j) => j.id === activeJob.jobId) ?? null
+      : (jobsStore.active ?? null)
+  );
 
   function lineClass(msg: string): string {
     const lower = msg.toLowerCase();
@@ -23,7 +32,7 @@
 
   $effect(() => {
     // Touch the log so $effect tracks it.
-    const lines = activeJob.job?.log_lines ?? [];
+    const lines = job?.log_lines ?? [];
     lines.length;
     if (!bodyEl || !pinnedToBottom || lines.length === 0) return;
     if (scrollScheduled) return;
@@ -42,12 +51,12 @@
     <span>Log</span>
   </div>
   <div class="log-body" bind:this={bodyEl} onscroll={onScroll}>
-    {#if !activeJob.job}
+    {#if !job}
       <div class="log-line dim">No active job.</div>
-    {:else if activeJob.job.log_lines.length === 0}
+    {:else if job.log_lines.length === 0}
       <div class="log-line dim">No output yet.</div>
     {:else}
-      {#each activeJob.job.log_lines as line, i (i)}
+      {#each job.log_lines as line, i (i)}
         <div class="log-line {lineClass(line)}">{line}</div>
       {/each}
     {/if}

@@ -1,10 +1,20 @@
 <script lang="ts">
   import { activeJob } from '$lib/stores/active.svelte';
+  import { jobsStore } from '$lib/stores/jobs.svelte';
   import LogSection from './LogSection.svelte';
   import ShareCard from './ShareCard.svelte';
   import type { PhaseName } from '$lib/types';
 
   const PHASES: PhaseName[] = ['Download', 'Transcode', 'Upload'];
+
+  // Derive the displayed job straight from the polled list instead of
+  // a copied snapshot, so progress/status updates always propagate the
+  // moment the poll lands (no stale "Waiting for runner…").
+  const job = $derived(
+    activeJob.jobId
+      ? jobsStore.jobs.find((j) => j.id === activeJob.jobId) ?? null
+      : (jobsStore.active ?? null)
+  );
 
   // Whether a given phase is finished (= some later phase has been
   // started, or the job status is `done`).
@@ -15,15 +25,16 @@
   }
 
   const dotClass = $derived.by((): string => {
-    const s = activeJob.job?.status ?? 'pending';
+    const s = job?.status ?? 'pending';
     if (s === 'running' || s === 'pending') return 'running';
     if (s === 'done') return 'done';
     if (s === 'error') return 'error';
+    if (s === 'cancelled') return 'cancelled';
     return '';
   });
 
   const overallPct = $derived.by((): number => {
-    const pp = activeJob.job?.phase_progress;
+    const pp = job?.phase_progress;
     if (!pp) return 0;
     // Weighted by typical duration: 30 / 50 / 20.
     return Math.max(
@@ -34,48 +45,45 @@
       )
     );
   });
-
-  function pctClass(pct: number): string {
-    if (pct >= 100) return 'done';
-    if (pct > 0) return 'active';
-    return '';
-  }
 </script>
 
 <section class="card job-card">
   <header class="card-header">
     <span class="job-status-dot {dotClass}"></span>
-    <span class="job-card-url">{activeJob.job?.title ?? activeJob.job?.url ?? ''}</span>
+    <span class="job-card-url">{job?.title ?? job?.url ?? ''}</span>
     <span class="job-card-pct">{overallPct}%</span>
   </header>
 
   <div class="phases">
     {#each PHASES as name}
-      {@const pp = activeJob.job?.phase_progress}
+      {@const pp = job?.phase_progress}
       {@const pct = pp?.[name] ?? 0}
-      {@const meta = activeJob.job?.phase_meta?.[name] ?? ''}
-      {@const phaseDone = isPhaseDone(name, activeJob.job?.phase ?? null, activeJob.job?.status ?? '')}
-      {@const fillClass = phaseDone ? 'done' : pctClass(pct)}
-      {@const labelClass = phaseDone ? 'done' : pct > 0 ? 'active' : ''}
+      {@const meta = job?.phase_meta?.[name] ?? ''}
+      {@const phaseDone = isPhaseDone(name, job?.phase ?? null, job?.status ?? '')}
+      {@const phaseActive = job?.phase === name}
+      {@const fillClass = phaseDone ? 'done' : phaseActive ? 'active' : ''}
+      {@const labelClass = phaseDone ? 'done' : phaseActive ? 'active' : ''}
+      {@const widthPct = phaseDone ? 100 : Math.min(100, Math.max(0, pct))}
+      {@const barActive = phaseActive && job?.status === 'running'}
       <div class="phase-row">
         <div class="phase-label {labelClass}">{name}</div>
         <div class="phase-bar">
-          <div class="phase-fill {fillClass}" style="width: {Math.min(100, Math.max(0, pct))}%"></div>
+          <div class="phase-fill {fillClass} {!phaseDone && barActive && pct === 0 ? 'indeterminate' : ''}" style="width: {widthPct}%"></div>
         </div>
-        <div class="phase-meta">{phaseDone ? '✓' : meta}</div>
+        <div class="phase-meta">{phaseDone ? '✓' : barActive ? meta : ''}</div>
       </div>
     {/each}
   </div>
 
-  {#if activeJob.job?.status === 'done' && activeJob.job?.share_url}
+  {#if job?.status === 'done' && job.share_url}
     <ShareCard
-      shareUrl={activeJob.job.share_url}
-      directUrl={activeJob.job.direct_url ?? activeJob.job.share_url}
-      expiresAt={activeJob.job.expires_at ?? 0}
+      shareUrl={job.share_url}
+      directUrl={job.direct_url ?? job.share_url}
+      expiresAt={job.expires_at ?? 0}
     />
-  {:else if activeJob.job?.status === 'error'}
-    <div class="error-banner">✗ {activeJob.job.error ?? 'Unknown error'}</div>
-  {:else if activeJob.job?.status === 'pending'}
+  {:else if job?.status === 'error'}
+    <div class="error-banner">✗ {job.error ?? 'Unknown error'}</div>
+  {:else if job?.status === 'pending'}
     <div class="dim">Waiting for runner to pick up the job…</div>
   {/if}
 

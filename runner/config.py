@@ -40,10 +40,10 @@ class JobConfig:
     audio_bitrate: str = DEFAULT_AUDIO_BITRATE
     ttl_seconds: int = DEFAULT_TTL_SECONDS
     watermark_enabled: bool = True
-    watermark_line1: str = "KRSZ Share"
+    watermark_line1: str = "sharetube.krsz.in"
     watermark_line2: str = "{title} · {resolution} · {duration}"
     watermark_font_size: int = 28
-    use_cookies: bool = False
+    use_cookies: bool = True
 
     @classmethod
     def from_json(cls, data) -> "JobConfig":

@@ -139,32 +139,6 @@
             <div class="field-hint">Range 5 min … 7 days.</div>
           </div>
         </div>
-
-        <div class="field-group">
-          <div class="field-group-label">Watermark</div>
-
-          <div class="field">
-            <label class="checkbox-label">
-              <input type="checkbox" bind:checked={draft.watermark_enabled} />
-              Enable watermark (forces software x264 encode)
-            </label>
-          </div>
-
-          {#if draft.watermark_enabled}
-            <div class="field">
-              <label class="field-label" for="cfg-wm-line1">Line 1</label>
-              <input id="cfg-wm-line1" class="field-input" type="text" bind:value={draft.watermark_line1} />
-            </div>
-            <div class="field">
-              <label class="field-label" for="cfg-wm-line2">Line 2 (supports {'{title}'}, {'{resolution}'}, {'{duration}'})</label>
-              <input id="cfg-wm-line2" class="field-input" type="text" bind:value={draft.watermark_line2} />
-            </div>
-            <div class="field">
-              <label class="field-label" for="cfg-wm-size">Font size</label>
-              <input id="cfg-wm-size" class="field-input" type="number" min="10" max="200" bind:value={draft.watermark_font_size} />
-            </div>
-          {/if}
-        </div>
       </div>
 
       <div class="modal-footer">

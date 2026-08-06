@@ -776,6 +776,29 @@ a:hover {
   color: var(--text-muted);
 }
 
+.history-label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.clear-btn {
+  font-size: 10.5px;
+  font-weight: 600;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--text-muted);
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: transparent;
+  transition: color 0.15s, background 0.15s;
+}
+
+.clear-btn:hover {
+  color: var(--error);
+  background: var(--error-soft);
+}
+
 .sidebar-empty {
   padding: 24px 16px;
   text-align: center;

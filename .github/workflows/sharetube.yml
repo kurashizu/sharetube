@@ -33,43 +33,28 @@ jobs:
           python-version: "3.13"
 
       # ── Tool versions & cache ────────────────────────────────────────
-      # Query the GitHub API at runtime so the cache key reflects the
-      # upstream release. yt-dlp's tag is `YYYY.MM.DD`; BtbN/FFmpeg-
-      # Builds ships numeric tags `nX.Y` for the FFmpeg major.minor
-      # line. Pinning to a major.minor instead of a daily autobuild
-      # keeps cache hits stable across patches.
-      - name: Resolve tool versions
-        id: versions
+      # yt-dlp has clean numbered tags (`YYYY.MM.DD`); resolved at run
+      # time so the cache key reflects the current release. ffmpeg
+      # comes from BtbN's rolling "latest" build — its URL is stable,
+      # so we cache by a fixed key (explicit cache-clear upgrades it).
+      - name: Resolve yt-dlp version
+        id: yt
         run: |
           set -euo pipefail
           YT_DLP_VER=$(curl -fsSL https://api.github.com/repos/yt-dlp/yt-dlp/releases/latest \
             | python3 -c "import json,sys;print(json.load(sys.stdin)['tag_name'])")
-          FFMPEG_LINE=$(curl -fsSL "https://api.github.com/repos/BtbN/FFmpeg-Builds/releases?per_page=100" \
-            | python3 -c "
-          import json, sys, re
-          rels = json.load(sys.stdin)
-          nums = []
-          for r in rels:
-              tag = r.get('tag_name', '')
-              m = re.match(r'^n(\d+\.\d+)$', tag)
-              if m:
-                  nums.append(tuple(map(int, m.group(1).split('.'))))
-          latest = max(nums)
-          print(f'n{latest[0]}.{latest[1]}')
-          ")
-          echo "yt-dlp=${YT_DLP_VER}" >> "$GITHUB_OUTPUT"
-          echo "ffmpeg=${FFMPEG_LINE}" >> "$GITHUB_OUTPUT"
+          echo "v=${YT_DLP_VER}" >> "$GITHUB_OUTPUT"
 
       - name: Cache tools (yt-dlp + ffmpeg)
         id: tools
         uses: actions/cache@v6
         with:
           path: ~/.local/tools
-          key: tools-${{ runner.os }}-yt-${{ steps.versions.outputs.yt-dlp }}-ffmpeg-${{ steps.versions.outputs.ffmpeg }}
-          # Fall back to any older matching prefix if the exact
-          # version key has expired.
+          key: tools-${{ runner.os }}-yt-${{ steps.yt.outputs.v }}-ffmpeg-master
+          # Fall back to any older yt-dlp if the exact version key has
+          # expired (we then refresh yt-dlp but keep ffmpeg).
           restore-keys: |
-            tools-${{ runner.os }}-yt-${{ steps.versions.outputs.yt-dlp }}-
+            tools-${{ runner.os }}-yt-${{ steps.yt.outputs.v }}-
             tools-${{ runner.os }}-
 
       - name: Install yt-dlp + ffmpeg
@@ -79,17 +64,17 @@ jobs:
           mkdir -p ~/.local/tools
           # yt-dlp: single static binary from upstream releases.
           curl -fsSL -o ~/.local/tools/yt-dlp \
-            "https://github.com/yt-dlp/yt-dlp/releases/download/${{ steps.versions.outputs.yt-dlp }}/yt-dlp_linux"
+            "https://github.com/yt-dlp/yt-dlp/releases/download/${{ steps.yt.outputs.v }}/yt-dlp_linux"
           chmod +x ~/.local/tools/yt-dlp
-          # ffmpeg: BtbN's static build for the resolved major.minor.
-          LINE="${{ steps.versions.outputs.ffmpeg }}"           # e.g. n8.1
-          LINE_NUM="${LINE#n}"                                  # 8.1
+          # ffmpeg: BtbN's rolling "latest" build (master branch).
+          # The URL is stable; cache key above is explicit so we don't
+          # re-download unless someone changes the workflow.
           curl -fsSL -o /tmp/ffmpeg.tar.xz \
-            "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-${LINE}-latest-linux64-gpl-${LINE_NUM}.tar.xz"
+            "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-linux64-gpl.tar.xz"
           tar xJf /tmp/ffmpeg.tar.xz -C /tmp
-          mv "/tmp/ffmpeg-${LINE}-latest-linux64-gpl/bin/ffmpeg" ~/.local/tools/ffmpeg
-          mv "/tmp/ffmpeg-${LINE}-latest-linux64-gpl/bin/ffprobe" ~/.local/tools/ffprobe
-          rm -rf /tmp/ffmpeg-${LINE}-latest-linux64-gpl /tmp/ffmpeg.tar.xz
+          mv /tmp/ffmpeg-master-latest-linux64-gpl/bin/ffmpeg ~/.local/tools/ffmpeg
+          mv /tmp/ffmpeg-master-latest-linux64-gpl/bin/ffprobe ~/.local/tools/ffprobe
+          rm -rf /tmp/ffmpeg-master-latest-linux64-gpl /tmp/ffmpeg.tar.xz
           chmod +x ~/.local/tools/ffmpeg ~/.local/tools/ffprobe
           ~/.local/tools/yt-dlp --version
           ~/.local/tools/ffmpeg -version | head -1

@@ -29,9 +29,13 @@
     {
       "binding": "DB",
       "database_name": "sharetube-db",
-      "database_id": "REPLACE_WITH_D1_ID"
+      "database_id": "55fcce50-fb90-47f4-8aa4-9d11527a6c79"
     }
   ],
+  "assets": {
+    "directory": ".svelte-kit/cloudflare",
+    "binding": "ASSETS"
+  },
   "observability": {
     "enabled": true
   }

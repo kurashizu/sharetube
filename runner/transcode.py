@@ -171,7 +171,8 @@ def _format_watermark(cfg: Config, src: Path) -> tuple[str, str]:
         vbr = video.get("bit_rate")
         info["bitrate"] = f"{int(vbr) // 1000}k" if vbr else ""
         info["title"] = (
-            src.stem.split("[")[0].strip() if "[" in src.stem else src.stem
+            src.stem.split("[")[0].rstrip(" -_").strip()
+            if "[" in src.stem else src.stem
         )
     line1 = cfg.job_cfg.watermark_line1
     try:

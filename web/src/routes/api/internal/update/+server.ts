@@ -88,19 +88,25 @@ export const POST: RequestHandler = async ({ request, platform }) => {
     sets.push('meta = ?');
     binds.push(body.meta);
   }
-  // Per-phase pcts: if a phase transition happens, the *old* phase's
-  // pct is whatever it last was (and we then zero the new one's meta).
+  // Per-phase pcts: strictly monotonic — the runner pushes progress
+  // through a rate-limited async queue while phase-completion markers
+  // go out synchronously, so a stale queued packet can arrive AFTER a
+  // 100% marker and would otherwise regress the bar. MAX() makes the
+  // stored value never decrease.
   if (typeof body.download_pct === 'number') {
-    sets.push('dl_pct = ?');
-    binds.push(Math.max(0, Math.min(100, body.download_pct)));
+    const v = Math.max(0, Math.min(100, body.download_pct));
+    sets.push('dl_pct = MAX(dl_pct, ?)');
+    binds.push(v);
   }
   if (typeof body.transcode_pct === 'number') {
-    sets.push('tx_pct = ?');
-    binds.push(Math.max(0, Math.min(100, body.transcode_pct)));
+    const v = Math.max(0, Math.min(100, body.transcode_pct));
+    sets.push('tx_pct = MAX(tx_pct, ?)');
+    binds.push(v);
   }
   if (typeof body.upload_pct === 'number') {
-    sets.push('up_pct = ?');
-    binds.push(Math.max(0, Math.min(100, body.upload_pct)));
+    const v = Math.max(0, Math.min(100, body.upload_pct));
+    sets.push('up_pct = MAX(up_pct, ?)');
+    binds.push(v);
   }
   if (typeof body.share_url === 'string') {
     sets.push('share_url = ?');

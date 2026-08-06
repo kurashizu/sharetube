@@ -92,8 +92,13 @@ export async function cleanupZombies(env: Env): Promise<void> {
  * Returns the number of jobs newly dispatched.
  */
 export async function dispatchPending(env: Env): Promise<number> {
+  // In-flight = runner actively pushing (running) + GH run already
+  // triggered but not yet reported back (pending & dispatched). Both
+  // consume a parallel slot; counting only `running` would let bursts
+  // exceed MAX_PARALLEL before the runners phone home.
   const running = await env.DB.prepare(
-    `SELECT COUNT(*) AS n FROM jobs WHERE status = 'running'`
+    `SELECT COUNT(*) AS n FROM jobs
+      WHERE status = 'running' OR (status = 'pending' AND dispatched = 1)`
   ).first<{ n: number }>();
   const inflight = running?.n ?? 0;
   const free = Math.max(0, MAX_PARALLEL - inflight);

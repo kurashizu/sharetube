@@ -60,6 +60,11 @@ export interface JobEntry {
   title: string | null;
   /** Queue position among pending jobs (for up/down moves). */
   queue_pos: number;
+  /** True once a GH run was dispatched for this job (even if the
+   *  runner hasn't phoned home yet). Lets the UI distinguish
+   *  app-level queuing from "waiting on GitHub to allocate a
+   *  runner". */
+  dispatched: boolean;
   /** True when the user requested a force-stop; runner aborts. */
   cancelled: boolean;
   config: JobConfig;

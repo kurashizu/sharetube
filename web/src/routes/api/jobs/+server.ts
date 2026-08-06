@@ -16,7 +16,7 @@ import type {
   CreateJobResponse,
   JobEntry
 } from '$lib/types';
-import { cleanupZombies, dispatchPending } from '$lib/server/dispatch';
+import { cleanupZombies, dispatchPending, pollGhRuns } from '$lib/server/dispatch';
 
 interface Env {
   DB: D1Database;
@@ -40,6 +40,7 @@ interface Counters {
   config_json: string;
   queue_pos: number;
   title: string | null;
+  dispatched: number;
   cancelled: number;
 }
 
@@ -79,6 +80,7 @@ function toJobEntry(
     config,
     queue_pos: row.queue_pos ?? 0,
     title: row.title ?? null,
+    dispatched: (row.dispatched ?? 0) === 1,
     cancelled: (row.cancelled ?? 0) === 1,
     created_at: row.created_at,
     updated_at: row.updated_at
@@ -87,11 +89,16 @@ function toJobEntry(
 
 const JOB_SELECT = `SELECT id, url, status, phase, dl_pct, tx_pct, up_pct, meta,
             log_lines, share_url, direct_url, expires_at, error,
-            config_json, queue_pos, title, cancelled, created_at, updated_at`;
+            config_json, queue_pos, title, dispatched, cancelled, created_at, updated_at`;
 
 export const GET: RequestHandler = async ({ platform }) => {
   const env = platform!.env;
   await cleanupZombies(env);
+  // Reflect GH run states (allocated / started / failed) in D1, but
+  // throttle the GH API calls — candidates are only polled once per
+  // 20s by pollGhRuns, and the fetch is skipped entirely when no
+  // candidate is due.
+  await pollGhRuns(env);
 
   const { results } = await env.DB.prepare(
     `${JOB_SELECT}
@@ -115,6 +122,7 @@ export const GET: RequestHandler = async ({ platform }) => {
     config_json: string;
     queue_pos: number;
     title: string | null;
+    dispatched: number;
     cancelled: number;
     created_at: number;
     updated_at: number;

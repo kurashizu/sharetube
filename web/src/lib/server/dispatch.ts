@@ -91,8 +91,7 @@ export async function cleanupZombies(env: Env): Promise<void> {
  * Fire GH runs for queued jobs up to MAX_PARALLEL total in-flight.
  * Returns the number of jobs newly dispatched.
  */
-export async function dispatchPending(env: Env): Promise<number> {
-  // In-flight = runner actively pushing (running) + GH run already
+export async function dispatchPending(env: Env): Promise<number> {  // In-flight = runner actively pushing (running) + GH run already
   // triggered but not yet reported back (pending & dispatched). Both
   // consume a parallel slot; counting only `running` would let bursts
   // exceed MAX_PARALLEL before the runners phone home.
@@ -131,4 +130,124 @@ export async function dispatchPending(env: Env): Promise<number> {
     }
   }
   return dispatched;
+}
+
+/**
+ * Poll GitHub for the runs we dispatched and reflect their status in
+ * D1, so a run that was cancelled / failed / never got a runner shows
+ * up in the UI instead of hanging at "awaiting runner" forever.
+ *
+ * We don't store run_ids, so we match by client_payload.job_id — the
+ * dispatch payload always carries it. Called from GET /api/jobs;
+ * throttled per job (once per ~20s) so we don't hammer the API.
+ */
+const GH_POLL_MIN_AGE_S = 30;   // don't poll before the run can exist
+const GH_POLL_INTERVAL_S = 20;  // min seconds between polls of one job
+
+export async function pollGhRuns(env: Env): Promise<void> {
+  const token = env.GH_DISPATCH_TOKEN;
+  if (!token) return;
+
+  const now = Math.floor(Date.now() / 1000);
+  // Pending & dispatched jobs that haven't phoned home yet.
+  const jobs = await env.DB.prepare(
+    `SELECT id, updated_at, error FROM jobs
+      WHERE status = 'pending' AND dispatched = 1`
+  ).all<{ id: string; updated_at: number; error: string | null }>();
+  const candidates = (jobs.results ?? []).filter(
+    (j) => now - j.updated_at > GH_POLL_MIN_AGE_S
+  );
+  if (candidates.length === 0) return;
+
+  const repo = env.GH_REPO ?? 'kurashizu/sharetube';
+  let runs: Array<{
+    id: number;
+    status: string;
+    conclusion: string | null;
+    created_at: string;
+    client_payload: { job_id?: string } | null;
+  }> = [];
+  try {
+    const r = await fetch(
+      `https://api.github.com/repos/${repo}/actions/runs?event=repository_dispatch&per_page=100`,
+      { headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: 'application/vnd.github+json',
+        'User-Agent': 'sharetube-worker',
+      } }
+    );
+    if (r.ok) {
+      const body = (await r.json()) as {
+        workflow_runs?: Array<{
+          id: number; status: string; conclusion: string | null;
+          created_at: string;
+          client_payload?: { job_id?: string };
+        }>;
+      };
+      runs = (body.workflow_runs ?? []).map((run) => ({
+        id: run.id,
+        status: run.status,
+        conclusion: run.conclusion ?? null,
+        created_at: run.created_at,
+        client_payload: run.client_payload ?? null,
+      }));
+    }
+  } catch (e) {
+    console.warn('pollGhRuns: fetch failed', (e as Error).message);
+    return;
+  }
+  if (runs.length === 0) return;
+
+  const byJob = new Map<string, typeof runs[number]>();
+  for (const run of runs) {
+    const jid = run.client_payload?.job_id;
+    if (jid && !byJob.has(jid)) byJob.set(jid, run);
+  }
+
+  for (const job of candidates) {
+    const run = byJob.get(job.id);
+    if (!run) continue;
+
+    const runCreated = Math.floor(Date.parse(run.created_at) / 1000);
+    const terminal =
+      run.status === 'completed' &&
+      (run.conclusion === 'failure' ||
+        run.conclusion === 'cancelled' ||
+        run.conclusion === 'timed_out');
+
+    // Don't mark a just-created run as failed before the runner
+    // even had a chance to boot.
+    if (terminal && now - runCreated > 60) {
+      await env.DB.prepare(
+        `UPDATE jobs SET status = 'error',
+                error = ?, log_lines = '[]', updated_at = ?
+          WHERE id = ? AND status = 'pending'`
+      ).bind(
+        `GitHub Actions run #${run.id} ${run.conclusion} (${run.status})`, now, job.id
+      ).run();
+      // Freed a slot.
+      await dispatchPending(env);
+      continue;
+    }
+
+    // Run is queued/in_progress on GH but the runner hasn't started
+    // pushing yet — reflect that in the UI logs. Only write when the
+    // job isn't already error (kept by the WHERE above).
+    if (run.status === 'queued' || run.status === 'in_progress') {
+      const msg =
+        run.status === 'queued'
+          ? 'GitHub: runner allocated, waiting to start…'
+          : 'GitHub: runner started, configuring environment…';
+      const existing = (await env.DB.prepare(
+        `SELECT log_lines FROM jobs WHERE id = ?`
+      ).bind(job.id).first<{ log_lines: string }>());
+      const lines = existing ? JSON.parse(existing.log_lines || '[]') : [];
+      if (lines.length === 0 || lines[lines.length - 1] !== msg) {
+        lines.push(msg);
+        await env.DB.prepare(
+          `UPDATE jobs SET log_lines = ?, updated_at = ? WHERE id = ?`
+        ).bind(JSON.stringify(lines), now, job.id).run();
+      }
+    }
+  }
 }

@@ -33,6 +33,18 @@
     return '';
   });
 
+  // Friendly explanation for a job that isn't processing yet.
+  const pendingNote = $derived.by((): string | null => {
+    if (job?.status !== 'pending') return null;
+    if (job.dispatched) {
+      return 'GitHub runner 已分配,正在配置环境并启动…';
+    }
+    const pos = job.queue_pos;
+    return pos > 1
+      ? `正在排队(第 ${pos} 位)等待空闲 runner…`
+      : '正在等待 GitHub runner 分配…';
+  });
+
   const overallPct = $derived.by((): number => {
     const pp = job?.phase_progress;
     if (!pp) return 0;
@@ -83,6 +95,8 @@
     />
   {:else if job?.status === 'error'}
     <div class="error-banner">✗ {job.error ?? 'Unknown error'}</div>
+  {:else if pendingNote}
+    <div class="pending-note">⏳ {pendingNote}</div>
   {/if}
 
   <LogSection />

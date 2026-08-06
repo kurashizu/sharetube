@@ -60,6 +60,13 @@
     );
   }
 
+  // Short status label for the sidebar (pending jobs have no pct).
+  function pendingLabel(j: JobEntry): string {
+    if (j.status !== 'pending') return '';
+    if (j.dispatched) return '启动中';
+    return j.queue_pos > 1 ? `排队 #${j.queue_pos}` : '等待';
+  }
+
   function select(j: JobEntry) {
     void activeJob.set(j.id);
   }
@@ -116,7 +123,7 @@
     {/if}
 
     {#if queue.length > 0}
-      <div class="sidebar-group-label starting-label">STARTING</div>
+      <div class="sidebar-group-label queued-label">Awaiting runner</div>
       {#each queue as j, i (j.id)}
         <div
           class="queue-item {activeJob.jobId === j.id ? 'active' : ''}"
@@ -127,6 +134,7 @@
         >
           <span class="queue-dot {dotClass(j.status)}"></span>
           <span class="queue-item-url" title={j.url}>{friendlyName(j)}</span>
+          <span class="queue-item-meta">{pendingLabel(j)}</span>
           <span class="queue-item-actions">
             <button class="queue-action-btn" onclick={(e) => move(e, j, 'up')} disabled={i === 0} title="Move up">↑</button>
             <button class="queue-action-btn" onclick={(e) => move(e, j, 'down')} disabled={i === queue.length - 1} title="Move down">↓</button>

@@ -1,25 +1,26 @@
 # sharetube
 
 > Paste a video URL → download → transcode (ffmpeg h264) → share.
-> Frontend on Cloudflare Workers, backend on GitHub Actions.
+> Frontend on Cloudflare Workers, backend on GitHub Actions (up to 4
+> parallel runners).
 
 ```
 ┌─────────────────┐  POST /api/jobs     ┌──────────────────────────────┐
 │ Browser (UI)    │────────────────────▶│ Cloudflare Worker (D1 state) │
-│ SvelteKit SPA   │◀──── GET /api/jobs  │  + repository_dispatch to GH │
-└─────────────────┘   every 1 s (poll)  └──────────────────────────────┘
-                                                   │ bearer token
-                                                   ▼
-                                         ┌──────────────────────────────┐
-                                         │ GitHub Actions: per-job run  │
-                                         │  - check out repo            │
-                                         │  - cache yt-dlp + ffmpeg     │
-                                         │  - decrypt secrets/cookies…  │
-                                         │  - python -m runner          │
-                                         └──────────────────────────────┘
-                                                   │ POST progress
-                                                   ▼
-                                         (same Worker, /api/internal/update)
+│ SvelteKit SPA   │◀──── GET /api/jobs  │  scheduler: ≤4 runs in-flight│
+└─────────────────┘   every 1 s (poll)  │  + repository_dispatch to GH │
+                                                 │ bearer token
+                                                 ▼
+                                       ┌──────────────────────────────┐
+                                       │ GitHub Actions: per-job run  │
+                                       │  - cache yt-dlp (versioned)  │
+                                       │  - cache frozen tools+fonts  │
+                                       │  - decrypt secrets/cookies…  │
+                                       │  - python -m runner          │
+                                       └──────────────────────────────┘
+                                                 │ POST progress
+                                                 ▼
+                                       (same Worker, /api/internal/update)
 ```
 
 ## Repository layout
@@ -27,22 +28,32 @@
 ```
 sharetube/
 ├── web/                          # Cloudflare Worker (SvelteKit SPA + REST)
-│   ├── src/routes/
-│   │   ├── +page.svelte         # UI
-│   │   └── api/
-│   │       ├── jobs/+server.ts          # POST submit, GET list
-│   │       ├── jobs/[id]/+server.ts     # GET one
-│   │       └── internal/update/+server.ts  # POST from runner (auth)
-│   ├── migrations/0001_init.sql         # D1 schema
-│   ├── wrangler.jsonc                   # CF binding: D1 + vars
-│   └── adapter-cloudflare               # builds to .svelte-kit/cloudflare/_worker.js
-├── runner/                       # Python (uv-managed) GitHub Actions job
-│   ├── __main__.py               # `python -m runner`
+│   ├── src/
+│   │   ├── routes/
+│   │   │   ├── +page.svelte             # UI (two-column layout)
+│   │   │   └── api/
+│   │   │       ├── jobs/+server.ts              # POST submit, GET list, DELETE history
+│   │   │       ├── jobs/[id]/+server.ts         # GET one, DELETE one
+│   │   │       ├── jobs/[id]/move/+server.ts    # POST {direction: up|down}
+│   │   │       ├── jobs/[id]/cancel/+server.ts  # POST force-stop
+│   │   │       └── internal/update/+server.ts   # POST from runner (auth, monotonic pct)
+│   │   ├── lib/
+│   │   │   ├── server/dispatch.ts      # queue scheduler (MAX_PARALLEL=4) + zombie cleanup
+│   │   │   ├── components/             # JobCard, Header, Hero, QueueDrawer, …
+│   │   │   └── stores/                 # jobs.svelte.ts (poll), active.svelte.ts
+│   ├── migrations/
+│   │   ├── 0001_init.sql               # base jobs table
+│   │   ├── 0002_queue_and_cancel.sql   # queue_pos, title, cancelled
+│   │   └── 0003_dispatch.sql           # dispatched flag + index
+│   ├── wrangler.jsonc                  # CF binding: D1 + vars
+│   └── adapter-cloudflare              # builds to .svelte-kit/cloudflare/_worker.js
+├── runner/                       # Python (stdlib-only) GitHub Actions job
+│   ├── __main__.py               # `python -m runner`; phase orchestration + cancel checks
 │   ├── config.py                 # env-driven; no JSON file
-│   ├── backend.py                # background-thread progress push
+│   ├── backend.py                # background-thread progress push + cancelled polling
 │   ├── download.py               # yt-dlp wrapper, 3-client fallback
-│   ├── transcode.py              # ffmpeg h264 (VAAPI when GPU present, else libx264)
-│   └── upload.py                 # cf-share (single-PUT / multipart)
+│   ├── transcode.py              # ffmpeg h264 (VAAPI when GPU present, else libx264) + drawtext watermark
+│   └── upload.py                 # cf-share (single-PUT / multipart), browser UA
 ├── secrets/
 │   └── cookies.txt.enc           # encrypted YouTube cookies (committed)
 └── .github/workflows/sharetube.yml
@@ -62,6 +73,32 @@ cd runner
 JOB_ID=… JOB_URL=… JOB_CONFIG_JSON='{}' INTERNAL_TOKEN=… \
   python -m runner
 ```
+
+## How the scheduler works
+
+The Worker is the **queue scheduler** — submitting a URL never directly
+fires a GH run, it only inserts a `pending` row with an increasing
+`queue_pos`:
+
+- At most **`MAX_PARALLEL` (= 4)** GH runs are in flight at once.
+  "In flight" = `status='running'` **or** `pending & dispatched=1`
+  (dispatch fired, runner still booting) — so bursts can't overshoot.
+- `dispatchPending()` is called after `POST /api/jobs` and whenever a
+  job leaves `running` (update endpoint, cancel endpoint). It claims
+  the oldest undispatched pending rows atomically (`dispatched` flag)
+  and fires `repository_dispatch` per claimed job.
+- Freed slots are backfilled immediately: when a runner reports
+  `done`/`error`, the update endpoint dispatches the next queued job
+  in queue order.
+- **Zombie detection** (on `GET`): `pending` with `dispatched=0` older
+  than 30 min → error "Queued but never dispatched"; `pending &
+  dispatched=1` stale 15 min → "runner never started"; `running` with
+  no updates for 30 min → "Runner lost contact". Pending jobs that are
+  simply waiting in line are **not** killed (that's normal with 4
+  runners).
+
+Frontend queue management: reorder (`↑↓` swaps `queue_pos`), force-stop
+(`cancel`), delete, and a "clear history" button (`DELETE /api/jobs`).
 
 ## First-time deployment
 
@@ -99,11 +136,18 @@ python -c "import secrets; print(secrets.token_urlsafe(32))" | \
 
 In **Settings → Secrets and variables → Actions**:
 
-| Kind     | Name             | Value                                                                                  |
-|----------|------------------|----------------------------------------------------------------------------------------|
-| Secret   | `INTERNAL_TOKEN` | same value as Worker's `INTERNAL_TOKEN`                                                |
-| Secret   | `COOKIES_PASS`   | the passphrase used to encrypt `secrets/cookies.txt.enc`                              |
-| Variable | `WORKER_URL`     | `https://sharetube.<your-account-subdomain>.workers.dev`                              |
+| Kind     | Name              | Value                                                                                  |
+|----------|-------------------|----------------------------------------------------------------------------------------|
+| Secret   | `INTERNAL_TOKEN`  | same value as Worker's `INTERNAL_TOKEN`                                                |
+| Secret   | `COOKIES_PASS`    | passphrase used to encrypt `secrets/cookies.txt.enc`                                   |
+| Secret   | `PROXY_TOKEN`     | OmniProxy tunnel token (for the Oracle exit-IP tunnel)                                 |
+| Variable | `WORKER_URL`      | `https://sharetube.<your-account-subdomain>.workers.dev`                               |
+| Variable | `OMNIPROXY_SERVER`| e.g. `op-au.022025.xyz` (wss, port 443)                                                |
+| Variable | `DENO_VER`        | pinned deno release tag, e.g. `v2.9.4`                                                 |
+
+`OMNIPROXY_SERVER` / `PROXY_TOKEN` / `DENO_VER` are optional — without
+them the runner still works but YouTube bot-wall protection may block
+some videos (cookies are bound to the exit IP).
 
 ### 5. Set the GitHub repo name in wrangler.jsonc
 
@@ -118,11 +162,20 @@ npm run build              # builds .svelte-kit/cloudflare/_worker.js
 npx wrangler deploy        # or: npm run deploy
 ```
 
-## Cookie file
+## Cookies & the tunnel
 
 YouTube trips a bot wall ("Sign in to confirm you're not a bot") on
-some videos. To work around it we ship an **encrypted** cookies.txt
-inside the repo and decrypt it at job time:
+some videos. Two things make downloads work from CI:
+
+1. **Encrypted cookies** — `secrets/cookies.txt.enc` is committed,
+   decrypted at job time with `COOKIES_PASS` into a temp file, and
+   **wiped in the cleanup step**. Cookies are **always** sent to
+   yt-dlp (there is no `use_cookies` toggle anymore).
+2. **OmniProxy tunnel** — the runner starts a local SOCKS5 client
+   (`127.0.0.1:1080`) that tunnels over WebSocket to the Oracle server
+   (`op-au.022025.xyz`), so yt-dlp exits from the Oracle IP — where the
+   cookies were minted — instead of Azure. This defeats the bot wall
+   and keeps cookies valid.
 
 ```bash
 # Export Netscape-format cookies from a logged-in browser
@@ -140,23 +193,39 @@ The same passphrase must be set as the `COOKIES_PASS` secret on the
 GitHub repo. Sessions expire every ~30 days — repeat the above when
 the runner starts tripping the wall.
 
-To disable cookies, set `use_cookies: false` in the frontend
-settings (and the runner won't pass `--cookies` to yt-dlp even if the
-encrypted file exists).
+> **Security (public repo!)**: CI logs and artifacts are visible to
+> anyone. Never print cookie values in the workflow, and never upload
+> `cookies.txt` or decrypted content as artifacts — the failure
+> transcript step is an explicit no-op for this reason.
+
+## Watermark
+
+Every transcoded video gets a `drawtext` watermark, **always on**:
+
+- top-left: `sharetube.krsz.in`
+- bottom-left: `{title} · {resolution} · {duration}` (metadata
+  substituted at transcode time)
+
+The runner resolves a CJK-capable font (Noto Sans CJK, cached in CI;
+falls back to any fontconfig face). If **no** font can be found the
+transcode **fails loudly** rather than silently dropping the watermark.
 
 ## Tool caching in CI
 
-`.github/workflows/sharetube.yml` resolves the latest versions on
-each run:
+Two separate caches, so setup stays fast:
 
-- **yt-dlp** — `https://api.github.com/repos/yt-dlp/yt-dlp/releases/latest`
-  → tag like `2026.07.04`
-- **ffmpeg** — `https://api.github.com/repos/BtbN/FFmpeg-Builds/releases`
-  → highest `nX.Y` tag (currently `n8.1`)
+- **yt-dlp** — version-checked every run (`Resolve yt-dlp version`
+  hits the GitHub API); cache key `ytdlp-$OS-<tag>`. The install step
+  compares the restored binary's version and re-downloads only when
+  there's a newer release.
+- **frozen tools** — ffmpeg (BtbN rolling build), deno (`DENO_VER`),
+  omni-client (`OMNIPROXY_VER`), and the CJK fonts live under a stable
+  key (`tools-fixed-$OS-deno-…-omni-…-ffmpeg-master-1`). Bump the
+  suffix manually to force a refresh. Fonts are unpacked from the
+  `fonts-noto-cjk` .deb into `~/.local/share/fonts` and cached there.
 
-Cache key: `tools-$OS-yt-<yt-dlp-version>-ffmpeg-<ffmpeg-version>`.
-Cache restores when both versions match the last successful run,
-falling back to any older matching yt-dlp then any older overall.
+All downloads carry `--max-time` / `--retry` so a slow mirror fails
+fast instead of hanging the whole run.
 
 ## Manual re-run
 

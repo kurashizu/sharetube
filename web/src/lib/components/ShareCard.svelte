@@ -20,7 +20,10 @@
 
   function formatExpiry(ts: number): string {
     if (!ts) return '';
-    return new Date(ts * 1000).toLocaleString();
+    // expires_at is stored as epoch milliseconds from the share API.
+    // Defensive: if it's a second-level-ish value, upscale it.
+    const ms = ts < 1e12 ? ts * 1000 : ts;
+    return new Date(ms).toLocaleString();
   }
 </script>
 

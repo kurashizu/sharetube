@@ -72,6 +72,28 @@ export const POST: RequestHandler = async ({ request, platform }) => {
 
   const now = Math.floor(Date.now() / 1000);
 
+  // Cancel-only probe: push_progress/update_sync normally learn
+  // `cancelled` from a response, but a job stuck in a long transcode
+  // or merge sends no push — so the runner issues a lightweight
+  // query that returns the flag without touching any state.
+  const hasFields =
+    typeof body.status === 'string' ||
+    typeof body.phase === 'string' ||
+    typeof body.meta === 'string' ||
+    typeof body.download_pct === 'number' ||
+    typeof body.transcode_pct === 'number' ||
+    typeof body.upload_pct === 'number' ||
+    typeof body.share_url === 'string' ||
+    typeof body.direct_url === 'string' ||
+    typeof body.expires_at === 'number' ||
+    typeof body.error === 'string' ||
+    typeof body.title === 'string' ||
+    Array.isArray(body.append_log);
+  if (!hasFields) {
+    // Pure cancel probe: don't touch updated_at, just answer.
+    return json({ ok: true, cancelled: row.cancelled ?? 0 });
+  }
+
   // Build dynamic SET clause based on which fields are present.
   const sets: string[] = ['updated_at = ?'];
   const binds: any[] = [now];

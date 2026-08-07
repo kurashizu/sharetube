@@ -24,6 +24,7 @@ logger = logging.getLogger("sharetube.runner")
 
 MAX_LOG_LINES = 50         # batched per call
 PUSH_INTERVAL_S = 0.05     # min interval between background pushes (50ms)
+CANCEL_POLL_INTERVAL_S = 2.0  # how often to probe for a force-stop
 
 
 class Backend:
@@ -38,6 +39,7 @@ class Backend:
         self._last_push_at = 0.0
         self._lock = threading.Lock()
         self._cancelled = False
+        self._last_cancel_poll = 0.0
         self._worker = threading.Thread(
             target=self._drain, name="sharetube-push", daemon=True
         )
@@ -101,6 +103,19 @@ class Backend:
         """
         if self._cancelled:
             raise JobCancelled()
+        # Proactive poll: a job stuck in a long phase with no progress
+        # pushes (transcode, merge) wouldn't otherwise learn about a
+        # force-stop until the next push response. Throttled so we
+        # don't hammer the Worker from a hot loop.
+        now = time.monotonic()
+        if now - self._last_cancel_poll >= CANCEL_POLL_INTERVAL_S:
+            self._last_cancel_poll = now
+            try:
+                self._send({"job_id": self._job_id})
+            except Exception:  # noqa: BLE001
+                pass
+            if self._cancelled:
+                raise JobCancelled()
 
     # ── internals ─────────────────────────────────────────────────────
 

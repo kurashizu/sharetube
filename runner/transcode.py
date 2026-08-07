@@ -15,7 +15,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
-from .backend import Backend
+from .backend import Backend, JobCancelled
 from .config import Config
 
 _OUT_TIME_RE = re.compile(r"out_time_ms=(\d+)")
@@ -376,6 +376,15 @@ def transcode(
         line = line.rstrip()
         if not line:
             continue
+        # User force-stop: kill the ffmpeg subprocess promptly.
+        try:
+            backend.raise_if_cancelled()
+        except JobCancelled:
+            try:
+                proc.kill()
+            except Exception:
+                pass
+            raise
         m = _OUT_TIME_RE.match(line)
         if m:
             current_us = int(m.group(1))

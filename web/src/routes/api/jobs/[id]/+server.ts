@@ -66,7 +66,7 @@ function toJson(row: NonNullable<Awaited<ReturnType<typeof getRow>>>) {
   } catch {
     /* ignore malformed */
   }
-  if (row.phase && row.meta) phase_meta[row.phase as 'Download' | 'Transcode' | 'Upload'] = row.meta;
+  if (row.phase && row.meta && row.status === 'running') phase_meta[row.phase as 'Download' | 'Transcode' | 'Upload'] = row.meta;
   return {
     id: row.id,
     url: row.url,

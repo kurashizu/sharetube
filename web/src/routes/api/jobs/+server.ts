@@ -75,7 +75,7 @@ function toJobEntry(
   } catch {
     /* ignore malformed */
   }
-  if (phase && row.meta) phase_meta[phase] = row.meta;
+  if (phase && row.meta && row.status === 'running') phase_meta[phase] = row.meta;
   return {
     id: row.id,
     url: row.url,

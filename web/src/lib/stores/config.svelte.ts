@@ -20,7 +20,7 @@ export const TTL_PRESETS: ReadonlyArray<readonly [string, number]> = [
 ];
 
 export const DEFAULT_SETTINGS: UserSettings = {
-  max_resolution: '1080p',
+  max_resolution: '720p',
   output_resolution: '720p',
   video_bitrate: '600k',
   audio_bitrate: '128k',

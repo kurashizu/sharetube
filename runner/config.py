@@ -34,7 +34,7 @@ DEFAULT_TTL_SECONDS = 6 * 60 * 60
 
 @dataclass(frozen=True)
 class JobConfig:
-    max_resolution: str = "1080p"
+    max_resolution: str = "720p"
     output_resolution: str = "720p"
     video_bitrate: str = DEFAULT_VIDEO_BITRATE
     audio_bitrate: str = DEFAULT_AUDIO_BITRATE

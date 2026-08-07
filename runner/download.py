@@ -24,9 +24,15 @@ from .backend import Backend, JobCancelled
 from .config import Config
 
 _PROGRESS_TEMPLATE = (
-    "download: %(progress._percent_str)s "
-    "speed=%(speed)s eta=%(eta)s "
-    "of=%(total_bytes)s"
+    # Structured progress line. Uses yt-dlp's stable progress-template
+    # API fields (numerical, not the human-readable "1.2MiB/s ETA 00:30"
+    # text that changes between releases):
+    #   downloaded_bytes / total_bytes   (int)
+    #   progress.speed                   (float bytes/s, NA when unknown)
+    #   progress.eta                     (float seconds, NA when unknown)
+    # We render our own human-friendly string server-side.
+    "download: %(progress.downloaded_bytes)s/%(progress.total_bytes)s "
+    "speed=%(progress.speed)s eta=%(progress.eta)s"
 )
 
 
@@ -40,6 +46,13 @@ def _fmt_bytes(n) -> str:
     if n < 1024 * 1024 * 1024:
         return f"{n / 1024 / 1024:.1f} MB"
     return f"{n / 1024 / 1024 / 1024:.2f} GB"
+
+
+def _fmt_speed(bps: float | None) -> str:
+    """bytes/sec → '1.46 MiB/s'."""
+    if not bps or bps <= 0:
+        return ""
+    return f"{_fmt_bytes(bps)}/s"
 
 
 # Lines worth surfacing in the user log. yt-dlp's full stderr is
@@ -116,6 +129,11 @@ def _run_once(
     t.start()
 
     final_path: Optional[Path] = None
+    # Structured progress line (see _PROGRESS_TEMPLATE):
+    #   download: 1024/1128375 speed=1188644.08 eta=0
+    # Also tolerated (older/newer yt-dlp without progress-template
+    # support): "download: 45.2% speed=1.2MiB/s eta=00:30 of=12345"
+    dl_re = re.compile(r"^\s*download:\s*(\d+)\s*/(\d+|NA)\s+speed=([^\s]+)\s+eta=([^\s]+)")
     pct_re = re.compile(r"^\s*(?:download:\s*)?([\d.]+)%")
     speed_re = re.compile(r"speed=([^\s]+)")
     eta_re = re.compile(r"eta=([^\s]+)")
@@ -134,6 +152,36 @@ def _run_once(
             except Exception:
                 pass
             raise
+        m = dl_re.match(line)
+        if m:
+            # Numerical progress line.
+            try:
+                dl = int(m.group(1))
+            except ValueError:
+                dl = 0
+            total_raw = m.group(2)
+            total = int(total_raw) if total_raw != "NA" else 0
+            speed_raw = m.group(3)
+            eta_raw = m.group(4)
+            try:
+                speed_bps = float(speed_raw) if speed_raw != "NA" else 0.0
+            except ValueError:
+                speed_bps = 0.0
+            try:
+                eta_s = float(eta_raw) if eta_raw != "NA" else 0.0
+            except ValueError:
+                eta_s = 0.0
+            pct = (dl / total * 100.0) if total > 0 else 0.0
+            parts = []
+            if speed_bps > 0:
+                parts.append(_fmt_speed(speed_bps))
+            if eta_s > 0:
+                parts.append(f"ETA {int(eta_s)}s")
+            if total > 0:
+                parts.append(_fmt_bytes(total))
+            meta = " ".join(parts)
+            backend.push_progress("Download", pct, meta)
+            continue
         m = pct_re.match(line)
         if m:
             try:

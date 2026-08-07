@@ -8,6 +8,8 @@ youtube*.txt
 *.cookies.txt
 private.key
 cookies.agekey
+# local cookie dumps not yet merged into secrets/cookies.txt
+bili_cookies.txt
 
 # ─── Node / SvelteKit ──────────────────────────────────────────────────
 node_modules/

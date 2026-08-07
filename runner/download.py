@@ -94,6 +94,7 @@ def _run_once(
         "b[vcodec^=avc1][ext=mp4]/"
         "b[vcodec=h264]/b",
         "--merge-output-format", "mp4",
+        "--concurrent-fragments", "8",
         "--progress-template", _PROGRESS_TEMPLATE,
         # Capture the friendly title into a file during the same run —
         # avoids a second resolve (slow over the proxy) just for the

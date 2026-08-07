@@ -52,7 +52,7 @@ class Backend:
         a phase, end of a phase, terminal done/error)."""
         self._send(dict(payload, job_id=self._job_id))
 
-    def push_progress(self, phase: str, pct: float, meta: str = "") -> None:
+    def push_progress(self, phase: str, pct: float, meta: str = "", rollback: bool = False) -> None:
         """Hot-path async push used inside download/transcode/upload
         callbacks. Goes through the worker thread."""
         pct = max(0.0, min(100.0, float(pct)))
@@ -65,6 +65,12 @@ class Backend:
             "phase": phase,
             "meta": meta,
         }
+        # A DASH download rolls from the video stream over to the audio
+        # stream; the cumulative % briefly steps DOWN when the new
+        # stream's counters reset. Tell the worker to accept that
+        # renormalized value instead of its monotonic MAX().
+        if rollback:
+            payload["rollback"] = True
         if phase == "Download":
             payload["download_pct"] = pct
         elif phase == "Transcode":

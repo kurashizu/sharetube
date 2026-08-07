@@ -216,8 +216,13 @@ def _run_once(
             # stream's bytes into cum_completed so the overall % is
             # cumulative across streams — otherwise the bar hits 100%
             # when only the video stream finishes.
-            if dl < prev_dl and total > 0 and dl >= 0:
+            rollback = False
+            if total > 0 and dl < prev_dl and prev_dl > 0:
                 cum_completed += prev_dl
+                # The cumulative value is now LOWER than what we last
+                # pushed (video 99.9 → video+audio 83%); mark it so the
+                # worker accepts the renormalized % over its MAX guard.
+                rollback = True
             prev_dl = dl
             overall_dl = cum_completed + dl
             overall_total = cum_completed + total
@@ -237,7 +242,7 @@ def _run_once(
             if overall_total > 0:
                 parts.append(_fmt_bytes(overall_total))
             meta = " ".join(parts)
-            backend.push_progress("Download", pct, meta)
+            backend.push_progress("Download", pct, meta, rollback=rollback)
             continue
         m = pct_re.match(line)
         if m:

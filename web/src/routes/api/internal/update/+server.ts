@@ -150,10 +150,12 @@ export const POST: RequestHandler = async ({ request, platform }) => {
   // through a rate-limited async queue while phase-completion markers
   // go out synchronously, so a stale queued packet can arrive AFTER a
   // 100% marker and would otherwise regress the bar. MAX() makes the
-  // stored value never decrease.
+  // stored value never decrease. Exception: `rollback` (DASH video→
+  // audio stream transition renormalizes the cumulative %) is allowed
+  // to step DOWN once.
   if (typeof body.download_pct === 'number') {
     const v = Math.max(0, Math.min(100, body.download_pct));
-    sets.push('dl_pct = MAX(dl_pct, ?)');
+    sets.push(body.rollback ? 'dl_pct = ?' : 'dl_pct = MAX(dl_pct, ?)');
     binds.push(v);
   }
   if (typeof body.transcode_pct === 'number') {

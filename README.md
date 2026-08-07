@@ -100,6 +100,39 @@ fires a GH run, it only inserts a `pending` row with an increasing
 Frontend queue management: reorder (`↑↓` swaps `queue_pos`), force-stop
 (`cancel`), delete, and a "clear history" button (`DELETE /api/jobs`).
 
+Force-stop: `POST /api/jobs/[id]/cancel` marks the row `cancelled=1`
+and records `cancelled_at`. The runner polls the flag on every push
+(and during long transcode/merge via `raise_if_cancelled()`) and aborts
+the pipeline, reporting `error: cancelled by user`. If the runner never
+reports back (killed externally, GH run cancelled), zombie cleanup
+force-errors any `running & cancelled` job whose `cancelled_at` is
+older than 90 s — so a force-stop always resolves within ~90 s even if
+the runner is dead. `pollGhRuns` additionally watches the GH run of
+cancelled/pending jobs and frees the slot when the run dies.
+
+## Download pipeline
+
+The runner wraps yt-dlp and pushes **structured progress** (not
+human-readable text) so the UI stays consistent across yt-dlp releases:
+
+- The progress template uses yt-dlp's stable API fields
+  (`progress.downloaded_bytes/total_bytes`, `progress.speed`,
+  `progress.eta`) — numbers, never localized "1.46MiB/s ETA 00:30"
+  text. The runner formats its own friendly string and smooths the
+  speed with an exponential moving average (raw values jitter wildly:
+  380 KB/s → 17 MB/s in under a second).
+- `--concurrent-fragments 8` fetches DASH/HLS fragments in parallel;
+  single-file mp4 is unaffected. Large downloads that used to sit at
+  ~200 KB/s (Oracle egress throttling) now run at 6–14 MB/s.
+- The title is captured with `--print-to-file %(title)s` during the
+  same run — no second `--print --no-download` resolve (which used to
+  time out and leave the title empty).
+- Logs stream to the UI instead of buffering: pre-download resolution
+  lines (`[youtube] …`) flush immediately, ffmpeg stderr is deduped
+  (repeated per-frame warnings collapse into a single `×N` entry), and
+  a "Resolving video info…" marker tells the user work is happening
+  before the first progress line.
+
 ## First-time deployment
 
 ### 1. GitHub

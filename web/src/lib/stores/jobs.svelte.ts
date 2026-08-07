@@ -5,7 +5,7 @@
 import { listJobs, startJob as apiStartJob } from '../api';
 import type { CreateJobRequest, JobEntry } from '../types';
 
-const POLL_MS = 1000;
+const POLL_MS = 5000;
 
 class JobsStore {
   jobs = $state<JobEntry[]>([]);

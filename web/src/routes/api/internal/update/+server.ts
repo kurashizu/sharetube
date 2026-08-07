@@ -120,13 +120,30 @@ export const POST: RequestHandler = async ({ request, platform }) => {
   }
   // Fold the current-phase meta into the persistent per-phase JSON so
   // a finished bar can show "5.2 MB · speed=8.4x" instead of just ✓.
-  if (typeof body.phase === 'string' && typeof body.meta === 'string') {
+  // - A completion marker (this phase's pct === 100) is authoritative
+  //   and overwrites whatever live speed string accumulated before it.
+  // - Otherwise (mid-stream progress) only set if we don't already
+  //   have a value, so a stale empty packet never erases the final one.
+  const phaseToPctKey: Record<string, string | undefined> = {
+    Download: 'download_pct',
+    Transcode: 'transcode_pct',
+    Upload: 'upload_pct',
+  };
+  if (typeof body.phase === 'string' && typeof body.meta === 'string' && body.meta !== '') {
     const phaseName = body.phase.replace(/[^A-Za-z]/g, '');
+    const pctKey = phaseToPctKey[phaseName];
+    const isCompletion =
+      (typeof body.download_pct === 'number' && body.download_pct >= 100) ||
+      (typeof body.transcode_pct === 'number' && body.transcode_pct >= 100) ||
+      (typeof body.upload_pct === 'number' && body.upload_pct >= 100);
     if (phaseName) {
       const prev = JSON.parse(row.phase_meta_json || '{}');
-      prev[phaseName] = body.meta;
-      sets.push('phase_meta_json = ?');
-      binds.push(JSON.stringify(prev));
+      const existing = prev[phaseName];
+      if (isCompletion || typeof existing !== 'string' || existing === '') {
+        prev[phaseName] = body.meta;
+        sets.push('phase_meta_json = ?');
+        binds.push(JSON.stringify(prev));
+      }
     }
   }
   // Per-phase pcts: strictly monotonic — the runner pushes progress

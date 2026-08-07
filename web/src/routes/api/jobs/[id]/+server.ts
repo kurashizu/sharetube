@@ -19,7 +19,8 @@ interface Env {
 
 const JOB_COLS = `id, url, status, phase, dl_pct, tx_pct, up_pct, meta,
             log_lines, share_url, direct_url, expires_at, error,
-            config_json, queue_pos, title, cancelled, created_at, updated_at`;
+            config_json, queue_pos, title, cancelled, created_at, updated_at,
+            phase_meta_json`;
 
 async function getRow(env: Env, id: string) {
   return env.DB.prepare(`SELECT ${JOB_COLS} FROM jobs WHERE id = ?`)
@@ -44,6 +45,7 @@ async function getRow(env: Env, id: string) {
       cancelled: number;
       created_at: number;
       updated_at: number;
+      phase_meta_json: string;
     }>();
 }
 
@@ -56,6 +58,14 @@ function toJson(row: NonNullable<Awaited<ReturnType<typeof getRow>>>) {
     Upload: row.up_pct ?? 0
   };
   const phase_meta: Partial<Record<'Download' | 'Transcode' | 'Upload', string>> = {};
+  try {
+    const saved = JSON.parse(row.phase_meta_json || '{}');
+    for (const k of ['Download', 'Transcode', 'Upload']) {
+      if (typeof saved[k] === 'string') phase_meta[k as 'Download'] = saved[k];
+    }
+  } catch {
+    /* ignore malformed */
+  }
   if (row.phase && row.meta) phase_meta[row.phase as 'Download' | 'Transcode' | 'Upload'] = row.meta;
   return {
     id: row.id,

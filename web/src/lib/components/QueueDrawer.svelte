@@ -93,6 +93,27 @@
   }
 
   const total = $derived(processing.length + queue.length + history.length);
+
+  // History is paginated (10/page) so the sidebar stays short.
+  const HISTORY_PAGE_SIZE = 10;
+  let historyPage = $state(1);
+  const historyPageCount = $derived(
+    Math.max(1, Math.ceil(history.length / HISTORY_PAGE_SIZE))
+  );
+  // Clamp if the page is now out of range (e.g. items deleted).
+  const historyPageClamped = $derived(Math.min(historyPage, historyPageCount));
+  const historyPageItems = $derived(
+    history.slice(
+      (historyPageClamped - 1) * HISTORY_PAGE_SIZE,
+      historyPageClamped * HISTORY_PAGE_SIZE
+    )
+  );
+  function historyPagePrev() {
+    historyPage = Math.max(1, historyPageClamped - 1);
+  }
+  function historyPageNext() {
+    historyPage = Math.min(historyPageCount, historyPageClamped + 1);
+  }
 </script>
 
 <aside class="sidebar">
@@ -146,10 +167,10 @@
 
     {#if history.length > 0}
       <div class="sidebar-group-label history-label">
-        <span>History</span>
+        <span>History{history.length > HISTORY_PAGE_SIZE ? ` (${history.length})` : ''}</span>
         <button class="clear-btn" onclick={() => clearAll()} title="Clear all history">Clear all</button>
       </div>
-      {#each history as j (j.id)}
+      {#each historyPageItems as j (j.id)}
         <div
           class="queue-item {activeJob.jobId === j.id ? 'active' : ''}"
           onclick={() => select(j)}
@@ -174,6 +195,13 @@
           </span>
         </div>
       {/each}
+      {#if historyPageCount > 1}
+        <div class="pagination">
+          <button class="page-btn" onclick={() => historyPagePrev()} disabled={historyPageClamped === 1} title="Previous page">‹</button>
+          <span class="page-info">{historyPageClamped} / {historyPageCount}</span>
+          <button class="page-btn" onclick={() => historyPageNext()} disabled={historyPageClamped === historyPageCount} title="Next page">›</button>
+        </div>
+      {/if}
     {/if}
 
     {#if processing.length === 0 && queue.length === 0 && history.length === 0}

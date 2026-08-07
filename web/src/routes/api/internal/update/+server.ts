@@ -100,8 +100,15 @@ export const POST: RequestHandler = async ({ request, platform }) => {
   const binds: any[] = [now];
 
   if (typeof body.status === 'string') {
-    sets.push('status = ?');
-    binds.push(body.status);
+    const cur = row.status;
+    const next = body.status;
+    // Guard against regression: a terminal state (done/error) must
+    // never be flipped back to running by a stale queued packet.
+    const terminal = cur === 'done' || cur === 'error' || cur === 'cancelled';
+    if (!(terminal && next === 'running')) {
+      sets.push('status = ?');
+      binds.push(next);
+    }
   }
   if (typeof body.phase === 'string' || body.phase === null) {
     sets.push('phase = ?');

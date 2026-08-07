@@ -56,8 +56,12 @@ class Backend:
         """Hot-path async push used inside download/transcode/upload
         callbacks. Goes through the worker thread."""
         pct = max(0.0, min(100.0, float(pct)))
+        # NOTE: no `status` field here on purpose. The terminal
+        # update_sync({status:'done'|'error'}) goes out synchronously
+        # and must not be overwritten by a stale queued progress
+        # packet that happens to arrive afterwards — status would
+        # regress from done/error back to running.
         payload: dict = {
-            "status": "running",
             "phase": phase,
             "meta": meta,
         }

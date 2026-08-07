@@ -114,9 +114,14 @@ def _run_once(
     )
 
     stderr_log_buffer: list[str] = []
+    # RLock so _flush_log_buffer() can be called from inside the lock
+    # in _drain_stderr without deadlocking.
+    stderr_log_lock = threading.RLock()
 
     def _flush_log_buffer() -> None:
-        if stderr_log_buffer:
+        with stderr_log_lock:
+            if not stderr_log_buffer:
+                return
             backend.log(stderr_log_buffer)
             stderr_log_buffer.clear()
 
@@ -129,15 +134,17 @@ def _run_once(
                 # progress during yt-dlp's pre-download resolution
                 # (webpage/player API fetches) instead of buffering 20
                 # lines and dumping them all at once.
-                stderr_log_buffer.append(stripped)
-                if len(stderr_log_buffer) >= 4:
-                    _flush_log_buffer()
+                with stderr_log_lock:
+                    stderr_log_buffer.append(stripped)
+                    if len(stderr_log_buffer) >= 4:
+                        _flush_log_buffer()
         _flush_log_buffer()
 
     t = threading.Thread(target=_drain_stderr, name="ytdlp-stderr", daemon=True)
     t.start()
 
     final_path: Optional[Path] = None
+    smoothed_speed: Optional[float] = None
     # Structured progress line (see _PROGRESS_TEMPLATE):
     #   download: 1024/1128375 speed=1188644.08 eta=0
     # Also tolerated (older/newer yt-dlp without progress-template
@@ -180,12 +187,25 @@ def _run_once(
                 eta_s = float(eta_raw) if eta_raw != "NA" else 0.0
             except ValueError:
                 eta_s = 0.0
+
+            # Raw yt-dlp speed/eta jitter a lot (380 KB/s then 17 MB/s
+            # within a second) — the UI would flicker wildly. Smooth the
+            # speed with an exponential moving average and recompute ETA
+            # from the smoothed value so both stay stable.
+            if speed_bps > 0:
+                if smoothed_speed is None:
+                    smoothed_speed = speed_bps
+                else:
+                    smoothed_speed += (speed_bps - smoothed_speed) * 0.35
             pct = (dl / total * 100.0) if total > 0 else 0.0
             parts = []
-            if speed_bps > 0:
-                parts.append(_fmt_speed(speed_bps))
-            if eta_s > 0:
-                parts.append(f"ETA {int(eta_s)}s")
+            if smoothed_speed and smoothed_speed > 0:
+                parts.append(_fmt_speed(smoothed_speed))
+                if total > dl > 0:
+                    rem = total - dl
+                    eta_s = rem / smoothed_speed
+                    if eta_s >= 1:
+                        parts.append(f"ETA {int(eta_s)}s")
             if total > 0:
                 parts.append(_fmt_bytes(total))
             meta = " ".join(parts)
@@ -210,7 +230,13 @@ def _run_once(
             backend.push_progress("Download", pct, meta)
             continue
         if _KEEP_RE.match(line):
-            stderr_log_buffer.append(line)
+            # yt-dlp emits resolution lines ('[youtube] Downloading
+            # webpage', 'player API JSON', …) on stdout. Flush them
+            # immediately so the UI streams instead of buffering them
+            # all until the download finishes.
+            with stderr_log_lock:
+                stderr_log_buffer.append(line)
+            _flush_log_buffer()
         if line.startswith("[Merger] Merging formats into ") or line.startswith("Destination:"):
             try:
                 fname = line.rsplit('"', 2)[-2]

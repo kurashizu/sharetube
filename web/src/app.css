@@ -535,9 +535,9 @@ a:hover {
 
 .phase-row {
   display: grid;
-  grid-template-columns: 110px 1fr 140px;
+  grid-template-columns: 84px 1fr 168px;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
 }
 
 .phase-label {

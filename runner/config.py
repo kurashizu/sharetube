@@ -25,7 +25,7 @@ def _opt(name: str, default: str) -> str:
 
 # Defaults mirrored from web/src/lib/stores/config.svelte.ts so a
 # dispatch without those fields still has a sensible value.
-DEFAULT_VIDEO_BITRATE = "1M"
+DEFAULT_VIDEO_BITRATE = "600k"
 DEFAULT_AUDIO_BITRATE = "128k"
 DEFAULT_VAAPI_DEVICE = "/dev/dri/renderD128"
 DEFAULT_ENCODER_PRESET = "ultrafast"

@@ -250,6 +250,11 @@ def _run_once(
                 pct = float(m.group(1))
             except ValueError:
                 continue
+            # yt-dlp also emits legacy/percent text lines (e.g. a
+            # "100.0000%" marker when a DASH stream finishes before the
+            # audio stream starts). Cap below 100 just like the numeric
+            # path — the merge phase owns reaching the final 100.
+            pct = min(pct, 99.9)
             sm = speed_re.search(line)
             em = eta_re.search(line)
             om = of_re.search(line)

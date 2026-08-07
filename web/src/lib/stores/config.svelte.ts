@@ -21,7 +21,7 @@ export const TTL_PRESETS: ReadonlyArray<readonly [string, number]> = [
 
 export const DEFAULT_SETTINGS: UserSettings = {
   max_resolution: '1080p',
-  output_resolution: '1080p',
+  output_resolution: '720p',
   video_bitrate: '600k',
   audio_bitrate: '128k',
   ttl_seconds: 6 * 60 * 60,

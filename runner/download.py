@@ -150,6 +150,12 @@ def _run_once(
 
     final_path: Optional[Path] = None
     smoothed_speed: Optional[float] = None
+    # DASH downloads split the media into separate video + audio
+    # streams; each progress line reports only the *current* stream's
+    # downloaded/total. Fold finished streams into cum_completed so the
+    # overall % reflects the whole media, not just the in-flight stream.
+    cum_completed: int = 0          # bytes done from prior streams
+    prev_dl: int = 0                # downloaded from previous progress line
     # Structured progress line (see _PROGRESS_TEMPLATE):
     #   download: 1024/1128375 speed=1188644.08 eta=0
     # Also tolerated (older/newer yt-dlp without progress-template
@@ -202,17 +208,34 @@ def _run_once(
                     smoothed_speed = speed_bps
                 else:
                     smoothed_speed += (speed_bps - smoothed_speed) * 0.35
-            pct = (dl / total * 100.0) if total > 0 else 0.0
+
+            # DASH media = separate video + audio streams downloaded
+            # sequentially. yt-dlp resets its per-stream counters when
+            # the next stream starts (downloaded drops far below the
+            # previous line's absolute position). Fold the finished
+            # stream's bytes into cum_completed so the overall % is
+            # cumulative across streams — otherwise the bar hits 100%
+            # when only the video stream finishes.
+            if dl < prev_dl and total > 0 and dl >= 0:
+                cum_completed += prev_dl
+            prev_dl = dl
+            overall_dl = cum_completed + dl
+            overall_total = cum_completed + total
+            pct = (overall_dl / overall_total * 100.0) if overall_total > 0 else 0.0
+            # The final merge/post-process step has no progress lines;
+            # cap below 100 so the bar doesn't claim done while the
+            # merge is still running — the next phase owns the 100.
+            pct = min(pct, 99.9)
             parts = []
             if smoothed_speed and smoothed_speed > 0:
                 parts.append(_fmt_speed(smoothed_speed))
-                if total > dl > 0:
-                    rem = total - dl
+                if overall_total > overall_dl > 0:
+                    rem = overall_total - overall_dl
                     eta_s = rem / smoothed_speed
                     if eta_s >= 1:
                         parts.append(f"ETA {int(eta_s)}s")
-            if total > 0:
-                parts.append(_fmt_bytes(total))
+            if overall_total > 0:
+                parts.append(_fmt_bytes(overall_total))
             meta = " ".join(parts)
             backend.push_progress("Download", pct, meta)
             continue

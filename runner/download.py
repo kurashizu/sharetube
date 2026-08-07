@@ -149,7 +149,6 @@ def _run_once(
     t.start()
 
     final_path: Optional[Path] = None
-    smoothed_speed: Optional[float] = None
 
     # Progress of the *current* DASH stream (video or audio; they may
     # also interleave under --concurrent-fragments). We track how many
@@ -198,15 +197,9 @@ def _run_once(
             except ValueError:
                 eta_s = 0.0
 
-            # Raw yt-dlp speed/eta jitter a lot (380 KB/s then 17 MB/s
-            # within a second) — the UI would flicker wildly. Smooth the
-            # speed with an exponential moving average and recompute ETA
-            # from the smoothed value so both stay stable.
-            if speed_bps > 0:
-                if smoothed_speed is None:
-                    smoothed_speed = speed_bps
-                else:
-                    smoothed_speed += (speed_bps - smoothed_speed) * 0.35
+            # Speed/eta are reported raw — yt-dlp's per-fragment
+            # measurements are already averaged enough; further smoothing
+            # only delayed the bar's reaction to the real link state.
 
             # Progress is the *current* stream's dl/total, but folded
             # across DASH streams so the bar doesn't reset to zero when
@@ -225,12 +218,12 @@ def _run_once(
             # phase owns the 100.
             pct = min(pct, 99.9)
             parts = []
-            if smoothed_speed and smoothed_speed > 0:
-                parts.append(_fmt_speed(smoothed_speed))
+            if speed_bps > 0:
+                parts.append(_fmt_speed(speed_bps))
                 if total_of > total_done > 0:
                     rem = total_of - total_done
                     if rem > 0:
-                        eta_s = rem / smoothed_speed
+                        eta_s = rem / speed_bps
                         if eta_s >= 1:
                             parts.append(f"ETA {int(eta_s)}s")
             if total_of > 0:

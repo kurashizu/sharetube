@@ -4,23 +4,15 @@
 > Frontend on Cloudflare Workers, backend on GitHub Actions (up to 4
 > parallel runners).
 
-```
-┌─────────────────┐  POST /api/jobs     ┌──────────────────────────────┐
-│ Browser (UI)    │────────────────────▶│ Cloudflare Worker (D1 state) │
-│ SvelteKit SPA   │◀──── GET /api/jobs  │  scheduler: ≤4 runs in-flight│
-└─────────────────┘   every 1 s (poll)  │  + repository_dispatch to GH │
-                                                 │ bearer token
-                                                 ▼
-                                       ┌──────────────────────────────┐
-                                       │ GitHub Actions: per-job run  │
-                                       │  - cache yt-dlp (versioned)  │
-                                       │  - cache frozen tools+fonts  │
-                                       │  - decrypt secrets/cookies…  │
-                                       │  - python -m runner          │
-                                       └──────────────────────────────┘
-                                                 │ POST progress
-                                                 ▼
-                                       (same Worker, /api/internal/update)
+```mermaid
+flowchart LR
+    Browser["Browser (UI)<br/>SvelteKit SPA"]
+    Worker["Cloudflare Worker<br/>(D1 state, scheduler)"]
+    GH["GitHub Actions runner<br/>(python -m runner)"]
+
+    Browser -- "POST /api/jobs<br/>GET /api/jobs (poll)" --> Worker
+    Worker -- "repository_dispatch<br/>(bearer token)" --> GH
+    GH  -- "POST /api/internal/update<br/>(progress + done)" --> Worker
 ```
 
 ## Repository layout

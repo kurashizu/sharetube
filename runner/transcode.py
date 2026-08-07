@@ -16,6 +16,19 @@ from pathlib import Path
 from typing import Optional
 
 from .backend import Backend, JobCancelled
+
+
+def _fmt_bytes(n: int | None) -> str:
+    """Human-readable size: 436,432,100 → 416.2 MB."""
+    if n is None or n < 0:
+        return "?"
+    if n < 1024:
+        return f"{int(n)} B"
+    if n < 1024 * 1024:
+        return f"{n / 1024:.1f} KB"
+    if n < 1024 * 1024 * 1024:
+        return f"{n / 1024 / 1024:.1f} MB"
+    return f"{n / 1024 / 1024 / 1024:.2f} GB"
 from .config import Config
 
 _OUT_TIME_RE = re.compile(r"out_time_ms=(\d+)")
@@ -406,5 +419,5 @@ def transcode(
         raise RuntimeError(f"ffmpeg exited with code {rc}")
     if not dst.exists() or dst.stat().st_size == 0:
         raise RuntimeError("ffmpeg produced no output file")
-    backend.log([f"Transcode done: {dst} ({dst.stat().st_size:,} bytes)"])
+    backend.log([f"Transcode done: {dst} ({_fmt_bytes(dst.stat().st_size)})"])
     return TranscodeResult(path=dst, speed=last_speed)

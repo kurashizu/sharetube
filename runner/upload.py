@@ -159,7 +159,7 @@ def upload(
         )
         if not etag:
             raise RuntimeError("S3 PUT returned no ETag header")
-        on_progress(100.0, f"{size:,} bytes uploaded")
+        on_progress(100.0, f"{_fmt_bytes(size)} uploaded")
         complete_body = {
             "uploadId": upload_id,
             "key": key,
@@ -197,9 +197,9 @@ def upload(
                 last_pct = pct
                 on_progress(
                     min(100.0, pct),
-                    f"part {i}/{total_parts} ({sent:,}/{size:,} bytes)",
+                    f"part {i}/{total_parts} ({_fmt_bytes(sent)}/{_fmt_bytes(size)})",
                 )
-        on_progress(100.0, f"{size:,} bytes uploaded")
+        on_progress(100.0, f"{_fmt_bytes(size)} uploaded")
         complete_body = {
             "mode": "multipart",
             "uploadId": upload_id,

@@ -30,6 +30,19 @@ from . import backend, config, download, transcode, upload
 from .backend import JobCancelled
 
 
+def _fmt_bytes(n: int | None) -> str:
+    """Human-readable size: 436,432,100 → 416.2 MB."""
+    if n is None or n < 0:
+        return "?"
+    if n < 1024:
+        return f"{int(n)} B"
+    if n < 1024 * 1024:
+        return f"{n / 1024:.1f} KB"
+    if n < 1024 * 1024 * 1024:
+        return f"{n / 1024 / 1024:.1f} MB"
+    return f"{n / 1024 / 1024 / 1024:.2f} GB"
+
+
 REPO_ROOT = Path(os.environ.get("GITHUB_WORKSPACE", ".")).resolve()
 ENCRYPTED_COOKIES = REPO_ROOT / "secrets" / "cookies.txt.enc"
 
@@ -107,7 +120,7 @@ async def run_pipeline() -> int:
     if cfg.job_cfg.use_cookies:
         cookies_path = _maybe_decrypt_cookies()
         if cookies_path:
-            be.log([f"decrypted cookies → {cookies_path} ({cookies_path.stat().st_size} bytes)"])
+            be.log([f"decrypted cookies → {cookies_path} ({_fmt_bytes(cookies_path.stat().st_size)})"])
         else:
             be.log(["use_cookies requested but no usable decrypted file; skipping"])
     # Else: leave as None → download module skips --cookies.
@@ -118,11 +131,11 @@ async def run_pipeline() -> int:
         be.log([f"tmpdir: {tmpdir}"])
         dl = download.download(cfg.url, tmpdir, cfg, be, cookies_path=cookies_path)
         be.raise_if_cancelled()
-        be.log([f"downloaded: {dl.path} ({dl.path.stat().st_size:,} bytes)"])
+        be.log([f"downloaded: {dl.path} ({_fmt_bytes(dl.path.stat().st_size)})"])
         be.update_sync({
             "phase": "Download",
             "download_pct": 100,
-            "meta": f"{dl.path.stat().st_size:,} bytes",
+            "meta": _fmt_bytes(dl.path.stat().st_size),
             # Friendly name for the UI lists.
             "title": dl.title,
         })
@@ -132,13 +145,13 @@ async def run_pipeline() -> int:
         out_mp4 = tmpdir / "out.mp4"
         tx_mod = transcode.transcode(dl.path, out_mp4, cfg, be)
         be.raise_if_cancelled()
-        be.log([f"transcoded: {tx_mod.path} ({tx_mod.path.stat().st_size:,} bytes)"])
+        be.log([f"transcoded: {tx_mod.path} ({_fmt_bytes(tx_mod.path.stat().st_size)})"])
         be.update_sync({
             "phase": "Transcode",
             "transcode_pct": 100,
-            "meta": f"{tx_mod.path.stat().st_size:,} bytes · speed={tx_mod.speed:.2f}x"
+            "meta": f"{_fmt_bytes(tx_mod.path.stat().st_size)} · speed={tx_mod.speed:.2f}x"
             if tx_mod.speed
-            else f"{tx_mod.path.stat().st_size:,} bytes",
+            else _fmt_bytes(tx_mod.path.stat().st_size),
         })
 
         # ── 3. upload ──────────────────────────────────────────────

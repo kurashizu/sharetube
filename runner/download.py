@@ -69,6 +69,11 @@ class DownloadResult:
     title: str
 
 
+def _have_aria2c() -> bool:
+    """True when the multi-connection downloader aria2c is on PATH."""
+    return shutil.which("aria2c") is not None
+
+
 def _run_once(
     url: str,
     outdir: Path,
@@ -83,7 +88,10 @@ def _run_once(
     cmd = [
         cfg.ytdlp_bin,
         "--newline",
-        "--no-part",
+        # aria2c splits single URLs across N connections; --no-part
+        # conflicts with aria2c's .aria2 control file so it's omitted
+        # when aria2c is used.
+        *([] if _have_aria2c() else ["--no-part"]),
         "-o", out_template,
         *(["--proxy", cfg.proxy_url] if cfg.proxy_url else []),
         "-S", f"vcodec:h264,vcodec:vp9,vcodec:hevc,{sort_res}",
@@ -95,6 +103,16 @@ def _run_once(
         "b[vcodec=h264]/b",
         "--merge-output-format", "mp4",
         "--progress-template", _PROGRESS_TEMPLATE,
+        # Capture the friendly title into a file during the same run —
+        # avoids a second resolve (slow over the proxy) just for the
+        # title.
+        "--print-to-file", "%(title)s", str(outdir / "title.txt"),
+        *([] if not _have_aria2c() else [
+            "--downloader", "aria2c",
+            "--downloader-args",
+            "aria2c:-x16 -s16 -k1M --file-allocation=none"
+            + (f" --all-proxy={cfg.proxy_url}" if cfg.proxy_url else ""),
+        ]),
         *extra_args,
         url,
     ]
@@ -263,22 +281,18 @@ def _run_once(
             raise RuntimeError("yt-dlp produced no output file")
         final_path = candidates[-1]
 
-    # Friendly title: prefer yt-dlp's --print metadata (independent of
-    # the on-disk name which includes the "-[id]" suffix). Fall back
-    # to the filename stem minus the suffix on failure.
+    # Friendly title written by --print-to-file during the same run.
     title = ""
     try:
-        title_proc = subprocess.run(
-            [cfg.ytdlp_bin, "--print", "%(title)s", "--no-download", url],
-            capture_output=True, text=True, check=True, timeout=15,
-        )
-        title = title_proc.stdout.strip()
+        tp = outdir / "title.txt"
+        if tp.exists():
+            title = tp.read_text(encoding="utf-8", errors="replace").strip()
     except Exception:
         pass
     if not title:
         title = final_path.stem
         # Strip the "-[videoId]" suffix the output template appends.
-        idx = title.rfind("-[")
+        idx = title.rfind("-")
         if idx != -1:
             title = title[:idx]
     return DownloadResult(path=final_path, title=title)

@@ -150,21 +150,20 @@ def _run_once(
 
     final_path: Optional[Path] = None
     smoothed_speed: Optional[float] = None
-    # DASH downloads split the media into separate video + audio
-    # streams; each progress line reports only the *current* stream's
-    # downloaded/total. Fold finished streams into cum_completed so the
-    # overall % reflects the whole media, not just the in-flight stream.
-    cum_completed: int = 0          # bytes done from prior streams
-    prev_dl: int = 0                # downloaded from previous progress line
+
+    # Progress of the *current* DASH stream (video or audio; they may
+    # also interleave under --concurrent-fragments). We track how many
+    # bytes a stream has already fully consumed so the bar moves
+    # monotonically across stream boundaries instead of resetting to
+    # zero. `last_stream_pos` = the dl seen right before this stream; a
+    # reset (dl << last_stream_pos) means yt-dlp switched to the next
+    # stream, so those bytes are now done.
+    stream_bytes_done: int = 0
+    prev_line_dl: int = 0
+
     # Structured progress line (see _PROGRESS_TEMPLATE):
     #   download: 1024/1128375 speed=1188644.08 eta=0
-    # Also tolerated (older/newer yt-dlp without progress-template
-    # support): "download: 45.2% speed=1.2MiB/s eta=00:30 of=12345"
     dl_re = re.compile(r"^\s*(?:download:\s*)?(\d+)\s*/(\d+|NA)\s+speed=([^\s]+)\s+eta=([^\s]+)")
-    pct_re = re.compile(r"^\s*(?:download:\s*)?([\d.]+)%")
-    speed_re = re.compile(r"speed=([^\s]+)")
-    eta_re = re.compile(r"eta=([^\s]+)")
-    of_re = re.compile(r"of=(\S+)")
     assert proc.stdout is not None
     for line in proc.stdout:
         line = line.rstrip()
@@ -209,63 +208,41 @@ def _run_once(
                 else:
                     smoothed_speed += (speed_bps - smoothed_speed) * 0.35
 
-            # DASH media = separate video + audio streams downloaded
-            # sequentially. yt-dlp resets its per-stream counters when
-            # the next stream starts (downloaded drops far below the
-            # previous line's absolute position). Fold the finished
-            # stream's bytes into cum_completed so the overall % is
-            # cumulative across streams — otherwise the bar hits 100%
-            # when only the video stream finishes.
-            rollback = False
-            if total > 0 and dl < prev_dl and prev_dl > 0:
-                cum_completed += prev_dl
-                # The cumulative value is now LOWER than what we last
-                # pushed (video 99.9 → video+audio 83%); mark it so the
-                # worker accepts the renormalized % over its MAX guard.
-                rollback = True
-            prev_dl = dl
-            overall_dl = cum_completed + dl
-            overall_total = cum_completed + total
-            pct = (overall_dl / overall_total * 100.0) if overall_total > 0 else 0.0
-            # The final merge/post-process step has no progress lines;
-            # cap below 100 so the bar doesn't claim done while the
-            # merge is still running — the next phase owns the 100.
+            # Progress is the *current* stream's dl/total, but folded
+            # across DASH streams so the bar doesn't reset to zero when
+            # yt-dlp moves from the video stream to the audio stream
+            # (its dl counter resets). When dl drops far below what we
+            # last saw, the previous stream is done — its bytes stay
+            # folded into the total.
+            if dl < prev_line_dl and prev_line_dl > 0:
+                stream_bytes_done += prev_line_dl
+            prev_line_dl = dl
+            total_done = stream_bytes_done + dl
+            total_of = stream_bytes_done + total
+            pct = (total_done / total_of * 100.0) if total_of > 0 else 0.0
+            # Merge/post-process emit no progress lines; cap below 100
+            # so the bar doesn't claim done while merging — the next
+            # phase owns the 100.
             pct = min(pct, 99.9)
             parts = []
             if smoothed_speed and smoothed_speed > 0:
                 parts.append(_fmt_speed(smoothed_speed))
-                if overall_total > overall_dl > 0:
-                    rem = overall_total - overall_dl
-                    eta_s = rem / smoothed_speed
-                    if eta_s >= 1:
-                        parts.append(f"ETA {int(eta_s)}s")
-            if overall_total > 0:
-                parts.append(_fmt_bytes(overall_total))
+                if total_of > total_done > 0:
+                    rem = total_of - total_done
+                    if rem > 0:
+                        eta_s = rem / smoothed_speed
+                        if eta_s >= 1:
+                            parts.append(f"ETA {int(eta_s)}s")
+            if total_of > 0:
+                parts.append(_fmt_bytes(total_of))
             meta = " ".join(parts)
-            backend.push_progress("Download", pct, meta, rollback=rollback)
-            continue
-        m = pct_re.match(line)
-        if m:
-            try:
-                pct = float(m.group(1))
-            except ValueError:
-                continue
-            # yt-dlp also emits legacy/percent text lines (e.g. a
-            # "100.0000%" marker when a DASH stream finishes before the
-            # audio stream starts). Cap below 100 just like the numeric
-            # path — the merge phase owns reaching the final 100.
-            pct = min(pct, 99.9)
-            sm = speed_re.search(line)
-            em = eta_re.search(line)
-            om = of_re.search(line)
-            speed = sm.group(1) if sm and sm.group(1) != "NA" else ""
-            eta = em.group(1) if em and em.group(1) != "NA" else ""
-            try:
-                size = _fmt_bytes(int(om.group(1))) if om and om.group(1) != "NA" else ""
-            except (ValueError, TypeError):
-                size = ""
-            meta = " ".join(p for p in [speed, eta, size] if p)
-            backend.push_progress("Download", pct, meta)
+            # Always assign (rollback) rather than MAX: single-stream
+            # downloads are naturally monotonic, and DASH stream
+            # switches step DOWN (video 99.9 → audio 0) which the
+            # MAX guard would otherwise freeze. Terminal-status safety
+            # is handled separately (status never regresses from
+            # done/error/cancelled), so pct can be written directly.
+            backend.push_progress("Download", pct, meta, rollback=True)
             continue
         if _KEEP_RE.match(line):
             # yt-dlp emits resolution lines ('[youtube] Downloading

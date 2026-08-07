@@ -69,11 +69,6 @@ class DownloadResult:
     title: str
 
 
-def _have_aria2c() -> bool:
-    """True when the multi-connection downloader aria2c is on PATH."""
-    return shutil.which("aria2c") is not None
-
-
 def _run_once(
     url: str,
     outdir: Path,
@@ -88,10 +83,7 @@ def _run_once(
     cmd = [
         cfg.ytdlp_bin,
         "--newline",
-        # aria2c splits single URLs across N connections; --no-part
-        # conflicts with aria2c's .aria2 control file so it's omitted
-        # when aria2c is used.
-        *([] if _have_aria2c() else ["--no-part"]),
+        "--no-part",
         "-o", out_template,
         *(["--proxy", cfg.proxy_url] if cfg.proxy_url else []),
         "-S", f"vcodec:h264,vcodec:vp9,vcodec:hevc,{sort_res}",
@@ -107,12 +99,6 @@ def _run_once(
         # avoids a second resolve (slow over the proxy) just for the
         # title.
         "--print-to-file", "%(title)s", str(outdir / "title.txt"),
-        *([] if not _have_aria2c() else [
-            "--downloader", "aria2c",
-            "--downloader-args",
-            "aria2c:-x16 -s16 -k1M --file-allocation=none"
-            + (f" --all-proxy={cfg.proxy_url}" if cfg.proxy_url else ""),
-        ]),
         *extra_args,
         url,
     ]

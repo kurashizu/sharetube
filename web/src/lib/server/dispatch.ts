@@ -20,6 +20,7 @@ export const MAX_PARALLEL = 4;
 const ZOMBIE_UNDISPATCHED_S = 30 * 60;  // queued but never dispatched
 const ZOMBIE_DISPATCHED_S = 15 * 60;    // dispatch fired, runner never started
 const ZOMBIE_RUNNING_S = 30 * 60;       // no progress pushes at all
+const CANCEL_ACK_TIMEOUT_S = 90;        // force-stop w/o runner ack → force-error
 
 interface Env {
   DB: D1Database;
@@ -85,6 +86,16 @@ export async function cleanupZombies(env: Env): Promise<void> {
             updated_at = ?
       WHERE status = 'running' AND updated_at < ? AND cancelled = 0`
   ).bind(now, now - ZOMBIE_RUNNING_S).run();
+  // Force-stop that never got acknowledged: the runner didn't report
+  // error within 90s of the cancel request — it's either dead or its
+  // GH run was killed externally. Fail it so the UI doesn't show a
+  // zombie running job.
+  await env.DB.prepare(
+    `UPDATE jobs SET status = 'error', error = 'Cancelled — runner stopped responding.',
+            updated_at = ?
+      WHERE status = 'running' AND cancelled = 1 AND cancelled_at IS NOT NULL
+            AND cancelled_at < ?`
+  ).bind(now, now - CANCEL_ACK_TIMEOUT_S).run();
 }
 
 /**
@@ -149,11 +160,13 @@ export async function pollGhRuns(env: Env): Promise<void> {
   if (!token) return;
 
   const now = Math.floor(Date.now() / 1000);
-  // Pending & dispatched jobs that haven't phoned home yet.
+  // Pending & dispatched jobs that haven't phoned home yet, plus
+  // force-stopped jobs whose runner may have died silently.
   const jobs = await env.DB.prepare(
-    `SELECT id, updated_at, error FROM jobs
-      WHERE status = 'pending' AND dispatched = 1`
-  ).all<{ id: string; updated_at: number; error: string | null }>();
+    `SELECT id, updated_at, error, cancelled, cancelled_at FROM jobs
+      WHERE (status = 'pending' AND dispatched = 1)
+         OR (status = 'running' AND cancelled = 1)`
+  ).all<{ id: string; updated_at: number; error: string | null; cancelled: number; cancelled_at: number | null }>();
   const candidates = (jobs.results ?? []).filter(
     (j) => now - j.updated_at > GH_POLL_MIN_AGE_S
   );
@@ -221,7 +234,7 @@ export async function pollGhRuns(env: Env): Promise<void> {
       await env.DB.prepare(
         `UPDATE jobs SET status = 'error',
                 error = ?, log_lines = '[]', updated_at = ?
-          WHERE id = ? AND status = 'pending'`
+          WHERE id = ? AND (status = 'pending' OR status = 'running')`
       ).bind(
         `GitHub Actions run #${run.id} ${run.conclusion} (${run.status})`, now, job.id
       ).run();

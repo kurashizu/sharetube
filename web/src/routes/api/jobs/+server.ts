@@ -42,6 +42,7 @@ interface Counters {
   title: string | null;
   dispatched: number;
   cancelled: number;
+  phase_meta_json: string;
 }
 
 /** Build the JSON-safe shape the frontend consumes. */
@@ -63,7 +64,17 @@ function toJobEntry(
     Transcode: row.tx_pct ?? 0,
     Upload: row.up_pct ?? 0
   };
+  // Per-phase completion meta from the persistent JSON, with the live
+  // current-phase meta overlaid so an in-progress bar reflects now.
   const phase_meta: Partial<Record<'Download' | 'Transcode' | 'Upload', string>> = {};
+  try {
+    const saved = JSON.parse(row.phase_meta_json || '{}');
+    for (const k of ['Download', 'Transcode', 'Upload']) {
+      if (typeof saved[k] === 'string') phase_meta[k as 'Download'] = saved[k];
+    }
+  } catch {
+    /* ignore malformed */
+  }
   if (phase && row.meta) phase_meta[phase] = row.meta;
   return {
     id: row.id,
@@ -89,7 +100,8 @@ function toJobEntry(
 
 const JOB_SELECT = `SELECT id, url, status, phase, dl_pct, tx_pct, up_pct, meta,
             log_lines, share_url, direct_url, expires_at, error,
-            config_json, queue_pos, title, dispatched, cancelled, created_at, updated_at`;
+            config_json, queue_pos, title, dispatched, cancelled, phase_meta_json,
+            created_at, updated_at`;
 
 export const GET: RequestHandler = async ({ platform }) => {
   const env = platform!.env;

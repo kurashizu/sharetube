@@ -82,7 +82,7 @@
         <div class="phase-bar">
           <div class="phase-fill {fillClass} {!phaseDone && barActive && pct === 0 ? 'indeterminate' : ''}" style="width: {widthPct}%"></div>
         </div>
-        <div class="phase-meta">{phaseDone ? '✓' : barActive ? meta : ''}</div>
+        <div class="phase-meta">{phaseDone ? (meta || '✓') : barActive ? meta : ''}</div>
       </div>
     {/each}
   </div>

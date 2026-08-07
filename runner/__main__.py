@@ -136,7 +136,9 @@ async def run_pipeline() -> int:
         be.update_sync({
             "phase": "Transcode",
             "transcode_pct": 100,
-            "meta": f"{tx_mod.path.stat().st_size:,} bytes"
+            "meta": f"{tx_mod.path.stat().st_size:,} bytes · speed={tx_mod.speed:.2f}x"
+            if tx_mod.speed
+            else f"{tx_mod.path.stat().st_size:,} bytes",
         })
 
         # ── 3. upload ──────────────────────────────────────────────

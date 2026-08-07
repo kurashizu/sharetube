@@ -25,9 +25,11 @@ export const POST: RequestHandler = async ({ platform, params }) => {
 
   if (row.status === 'running') {
     // Mark cancelled; runner picks it up on its next progress push.
+    // Record when so zombie cleanup can force-error if the runner
+    // never reports back.
     await env.DB.prepare(
-      `UPDATE jobs SET cancelled = 1, updated_at = ? WHERE id = ?`
-    ).bind(now, id).run();
+      `UPDATE jobs SET cancelled = 1, cancelled_at = ?, updated_at = ? WHERE id = ?`
+    ).bind(now, now, id).run();
     return json({ ok: true, message: 'cancel requested' });
   }
 

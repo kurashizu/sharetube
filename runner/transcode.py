@@ -25,6 +25,7 @@ _SPEED_RE = re.compile(r"speed=\s*([\d.]+)x")
 @dataclass
 class TranscodeResult:
     path: Path
+    speed: float  # ffmpeg encode speed, e.g. 8.4
 
 
 # ── ffprobe helpers ────────────────────────────────────────────────────
@@ -406,4 +407,4 @@ def transcode(
     if not dst.exists() or dst.stat().st_size == 0:
         raise RuntimeError("ffmpeg produced no output file")
     backend.log([f"Transcode done: {dst} ({dst.stat().st_size:,} bytes)"])
-    return TranscodeResult(path=dst)
+    return TranscodeResult(path=dst, speed=last_speed)

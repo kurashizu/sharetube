@@ -54,7 +54,7 @@ export const POST: RequestHandler = async ({ request, platform }) => {
   // Read current row so we can append to logs and preserve untouched
   // per-phase pcts.
   const row = await env.DB.prepare(
-    `SELECT log_lines, dl_pct, tx_pct, up_pct, status, phase, meta, cancelled
+    `SELECT log_lines, dl_pct, tx_pct, up_pct, status, phase, meta, cancelled, phase_meta_json
        FROM jobs WHERE id = ?`
   )
     .bind(job_id)
@@ -67,6 +67,7 @@ export const POST: RequestHandler = async ({ request, platform }) => {
       phase: string | null;
       meta: string;
       cancelled: number;
+      phase_meta_json: string;
     }>();
   if (!row) return json({ error: 'unknown job_id' }, { status: 404 });
 
@@ -109,6 +110,17 @@ export const POST: RequestHandler = async ({ request, platform }) => {
   if (typeof body.meta === 'string') {
     sets.push('meta = ?');
     binds.push(body.meta);
+  }
+  // Fold the current-phase meta into the persistent per-phase JSON so
+  // a finished bar can show "5.2 MB · speed=8.4x" instead of just ✓.
+  if (typeof body.phase === 'string' && typeof body.meta === 'string') {
+    const phaseName = body.phase.replace(/[^A-Za-z]/g, '');
+    if (phaseName) {
+      const prev = JSON.parse(row.phase_meta_json || '{}');
+      prev[phaseName] = body.meta;
+      sets.push('phase_meta_json = ?');
+      binds.push(JSON.stringify(prev));
+    }
   }
   // Per-phase pcts: strictly monotonic — the runner pushes progress
   // through a rate-limited async queue while phase-completion markers

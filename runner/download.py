@@ -161,6 +161,10 @@ def _run_once(
             except IndexError:
                 pass
 
+    # Download stream complete; yt-dlp may still be merging audio/
+    # video / post-processing, which emits no stdout progress. Push a
+    # status log so the UI shows activity instead of stalling at 100%.
+    backend.log(["Download stream complete — merging & post-processing…"])
     rc = proc.wait(timeout=3600)
     t.join(timeout=5)
     if rc != 0:

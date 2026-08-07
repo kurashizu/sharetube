@@ -142,7 +142,7 @@ def _run_once(
     #   download: 1024/1128375 speed=1188644.08 eta=0
     # Also tolerated (older/newer yt-dlp without progress-template
     # support): "download: 45.2% speed=1.2MiB/s eta=00:30 of=12345"
-    dl_re = re.compile(r"^\s*download:\s*(\d+)\s*/(\d+|NA)\s+speed=([^\s]+)\s+eta=([^\s]+)")
+    dl_re = re.compile(r"^\s*(?:download:\s*)?(\d+)\s*/(\d+|NA)\s+speed=([^\s]+)\s+eta=([^\s]+)")
     pct_re = re.compile(r"^\s*(?:download:\s*)?([\d.]+)%")
     speed_re = re.compile(r"speed=([^\s]+)")
     eta_re = re.compile(r"eta=([^\s]+)")

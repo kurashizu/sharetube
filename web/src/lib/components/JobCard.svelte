@@ -33,6 +33,12 @@
     return '';
   });
 
+  // True right after the user pressed Force stop, before the runner
+  // has confirmed (status still running/pending).
+  const stopping = $derived(
+    job != null && jobsStore.stoppingIds.has(job.id)
+  );
+
   // Friendly explanation for a job that isn't processing yet.
   const pendingNote = $derived.by((): string | null => {
     if (job?.status !== 'pending') return null;
@@ -63,7 +69,11 @@
   <header class="card-header">
     <span class="job-status-dot {dotClass}"></span>
     <span class="job-card-url">{job?.title ?? job?.url ?? ''}</span>
-    <span class="job-card-pct">{overallPct}%</span>
+    {#if stopping}
+      <span class="stopping-badge">STOPPING…</span>
+    {:else}
+      <span class="job-card-pct">{overallPct}%</span>
+    {/if}
   </header>
 
   <div class="phases">

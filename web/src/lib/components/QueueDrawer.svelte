@@ -73,6 +73,8 @@
 
   function stop(e: MouseEvent, j: JobEntry) {
     e.stopPropagation();
+    // Optimistic — show STOPPING immediately, then refresh.
+    jobsStore.markStopping(j.id);
     void cancelJob(j.id).then(() => jobsStore.refresh());
   }
 
@@ -135,7 +137,9 @@
         >
           <span class="queue-dot {dotClass(j.status)}"></span>
           <span class="queue-item-url" title={j.url}>{friendlyName(j)}</span>
-          <span class="queue-item-meta">{pct(j)}%</span>
+          <span class="queue-item-meta">
+            {jobsStore.stoppingIds.has(j.id) ? 'STOPPING…' : `${pct(j)}%`}
+          </span>
           <span class="queue-item-actions">
             <button class="queue-action-btn stop-btn" onclick={(e) => stop(e, j)} title="Force stop">⏹</button>
           </span>

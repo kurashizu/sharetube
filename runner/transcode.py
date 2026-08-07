@@ -368,18 +368,47 @@ def transcode(
 
     stderr_buf: list[str] = []
 
+    # ffmpeg prints some warnings once per frame ("Late SEI is not
+    # implemented"). Dedupe repeated identical lines so the log doesn't
+    # flood with hundreds of copies — show the first occurrence and
+    # collapse the rest into a "×N" suffix on the last flush.
+    _seen: dict[str, int] = {}
+
+    def _flush() -> None:
+        if not stderr_buf:
+            return
+        out: list[str] = []
+        for ln in stderr_buf:
+            cnt = _seen.get(ln, 0)
+            if cnt == 1:
+                out.append(ln)
+            elif cnt > 1:
+                out.append(f"{ln} (×{cnt})")
+        backend.log(out)
+        stderr_buf.clear()
+        _seen.clear()
+
     def _drain_stderr() -> None:
         assert proc.stderr is not None
         for ln in proc.stderr:
             line = ln.rstrip()
-            if line:
-                stderr_buf.append(f"[ffmpeg] {line}")
-                if len(stderr_buf) >= 30:
-                    backend.log(stderr_buf)
-                    stderr_buf.clear()
-        if stderr_buf:
-            backend.log(stderr_buf)
-            stderr_buf.clear()
+            if not line:
+                continue
+            # Noisy per-frame warnings — keep at most one, drop rest.
+            if "Late SEI is not implemented" in line:
+                _seen["[ffmpeg] Late SEI warning (repeated)"] = _seen.get("[ffmpeg] Late SEI warning (repeated)", 0) + 1
+                if _seen["[ffmpeg] Late SEI warning (repeated)"] == 1:
+                    stderr_buf.append("[ffmpeg] Late SEI warning (repeated)")
+                continue
+            if line.startswith("frame="):
+                continue
+            stderr_buf.append(f"[ffmpeg] {line}")
+            _seen[f"[ffmpeg] {line}"] = _seen.get(f"[ffmpeg] {line}", 0) + 1
+            # Flush as soon as we have a handful of lines so the UI
+            # streams instead of showing a wall of text all at once.
+            if len(stderr_buf) >= 8:
+                _flush()
+        _flush()
 
     t = threading.Thread(target=_drain_stderr, name="ffmpeg-stderr", daemon=True)
     t.start()

@@ -12,6 +12,11 @@ class JobsStore {
   loading = $state<boolean>(false);
   error = $state<string | null>(null);
 
+  // Job ids whose force-stop was just requested but not yet confirmed
+  // by the runner (still running/erroring). Optimistic UI shows these
+  // as STOPPING immediately instead of leaving the job looking active.
+  stoppingIds = $state<Set<string>>(new Set());
+
   private timer: ReturnType<typeof setInterval> | null = null;
   private stopped = false;
   private inflight = false;
@@ -40,12 +45,27 @@ class JobsStore {
     try {
       this.jobs = await listJobs();
       this.error = null;
+      // Drop stopping flags once the job actually left running/pending.
+      if (this.stoppingIds.size > 0) {
+        const live = new Set(
+          this.jobs
+            .filter((j) => j.status === 'running' || j.status === 'pending')
+            .map((j) => j.id)
+        );
+        const next = new Set([...this.stoppingIds].filter((id) => live.has(id)));
+        if (next.size !== this.stoppingIds.size) this.stoppingIds = next;
+      }
     } catch (e) {
       this.error = (e as Error).message;
     } finally {
       this.loading = false;
       this.inflight = false;
     }
+  }
+
+  /** Optimistically mark a job as stopping (force-stop requested). */
+  markStopping(id: string) {
+    this.stoppingIds = new Set(this.stoppingIds).add(id);
   }
 
   /** Submit a new job and immediately refresh the list so the user

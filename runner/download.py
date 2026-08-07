@@ -99,6 +99,11 @@ def _run_once(
         url,
     ]
 
+    # yt-dlp spends several seconds resolving the URL (webpage, player
+    # API, JS challenge) before any progress line appears — tell the
+    # user it's working so the UI doesn't look frozen.
+    backend.log(["Resolving video info…"])
+
     proc = subprocess.Popen(
         cmd,
         stdout=subprocess.PIPE,
@@ -120,8 +125,12 @@ def _run_once(
         for ln in proc.stderr:
             stripped = ln.rstrip()
             if _KEEP_RE.match(stripped):
+                # Stream promptly: one batch per line so the UI shows
+                # progress during yt-dlp's pre-download resolution
+                # (webpage/player API fetches) instead of buffering 20
+                # lines and dumping them all at once.
                 stderr_log_buffer.append(stripped)
-                if len(stderr_log_buffer) >= 20:
+                if len(stderr_log_buffer) >= 4:
                     _flush_log_buffer()
         _flush_log_buffer()
 

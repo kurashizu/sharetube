@@ -28,7 +28,7 @@ def _opt(name: str, default: str) -> str:
 DEFAULT_VIDEO_BITRATE = "1M"
 DEFAULT_AUDIO_BITRATE = "128k"
 DEFAULT_VAAPI_DEVICE = "/dev/dri/renderD128"
-DEFAULT_ENCODER_PRESET = "medium"
+DEFAULT_ENCODER_PRESET = "ultrafast"
 DEFAULT_TTL_SECONDS = 6 * 60 * 60
 
 

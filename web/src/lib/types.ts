@@ -18,6 +18,9 @@ export interface JobConfig {
   watermark_line1: string;
   watermark_line2: string;
   watermark_font_size: number;
+  /** libx264 `-preset` value. Faster presets = quicker encode,
+   *  larger file; slower presets = longer encode, smaller file. */
+  encoder_preset: string;
   /** When true, the runner decrypts the repo's `secrets/cookies.txt.enc`
    *  with the `COOKIES_PASS` GH secret and passes the resulting file to
    *  yt-dlp via `--cookies`. Use false to skip cookies entirely. */
@@ -108,6 +111,11 @@ export interface UserSettings {
   watermark_line1: string;
   watermark_line2: string;
   watermark_font_size: number;
+  /** libx264 `-preset` value. Trade-off: faster presets encode
+   *  quickly but produce larger files; slower presets compress better
+   *  but can take many minutes per minute of video. Runner whitelists
+   *  a safe subset (see runner/config.py X264_PRESETS). */
+  encoder_preset: string;
   /** When true, the runner uses the cookies.txt bundled (encrypted) in
    *  the repo. Most videos work without; only required for some that
    *  trigger YouTube's bot wall. */

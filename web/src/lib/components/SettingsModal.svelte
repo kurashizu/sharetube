@@ -2,6 +2,7 @@
   import {
     configStore,
     RESOLUTION_OPTIONS,
+    ENCODER_PRESET_OPTIONS,
     TTL_PRESETS
   } from '$lib/stores/config.svelte';
   import type { UserSettings } from '$lib/types';
@@ -109,6 +110,18 @@
           <div class="field">
             <label class="field-label" for="cfg-abr">Audio bitrate</label>
             <input id="cfg-abr" class="field-input" type="text" bind:value={draft.audio_bitrate} placeholder="128k" />
+          </div>
+
+          <div class="field">
+            <label class="field-label" for="cfg-preset">x264 encoder preset</label>
+            <div class="select-wrap">
+              <select id="cfg-preset" class="field-select" bind:value={draft.encoder_preset}>
+                {#each ENCODER_PRESET_OPTIONS as p}
+                  <option value={p.value}>{p.label} — {p.hint}</option>
+                {/each}
+              </select>
+            </div>
+            <div class="field-hint">Slower presets produce smaller files but take much longer to encode.</div>
           </div>
         </div>
 

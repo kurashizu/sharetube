@@ -41,6 +41,7 @@
           watermark_line1: 'sharetube.krsz.in',
           watermark_line2: '{title} · {resolution} · {duration}',
           watermark_font_size: 28,
+          encoder_preset: cfg.encoder_preset,
           use_cookies: true
         }
       });

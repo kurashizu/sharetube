@@ -10,6 +10,19 @@ import type { UserSettings } from '../types';
 const STORAGE_KEY = 'sharetube:settings:v1';
 
 export const RESOLUTION_OPTIONS = ['480p', '720p', '1080p', '1440p', '2160p'];
+// libx264 -preset values, fastest → slowest. The runner whitelists
+// this exact set (see runner/config.py X264_PRESETS); anything else
+// is silently dropped to the default.
+export const ENCODER_PRESET_OPTIONS: ReadonlyArray<{
+  value: string;
+  label: string;
+  hint: string;
+}> = [
+  { value: 'ultrafast', label: 'Ultrafast', hint: 'Fastest encode, largest file' },
+  { value: 'fast',      label: 'Fast',      hint: 'Default — good balance' },
+  { value: 'medium',    label: 'Medium',    hint: 'Slower encode, smaller file' },
+  { value: 'slow',      label: 'Slow',      hint: 'Smallest file, longest encode' }
+];
 export const TTL_PRESETS: ReadonlyArray<readonly [string, number]> = [
   ['5 min', 5 * 60],
   ['1 h', 60 * 60],
@@ -30,6 +43,9 @@ export const DEFAULT_SETTINGS: UserSettings = {
   watermark_line1: 'sharetube.krsz.in',
   watermark_line2: '{title} · {resolution} · {duration}',
   watermark_font_size: 28,
+  // libx264 preset; same default as runner/config.py. Fast gives a
+  // good speed/size trade-off for typical downloads.
+  encoder_preset: 'fast',
   // Cookies are always used (bot wall). The option is no longer
   // exposed in the UI; kept in the type only for stored settings
   // from older clients.

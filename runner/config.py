@@ -43,7 +43,17 @@ class JobConfig:
     watermark_line1: str = "sharetube.krsz.in"
     watermark_line2: str = "{title} · {resolution} · {duration}"
     watermark_font_size: int = 28
+    encoder_preset: str = DEFAULT_ENCODER_PRESET
     use_cookies: bool = True
+
+    # x264 presets exposed to the UI. Anything outside this whitelist
+    # would either error out at ffmpeg or burn hours of runner time
+    # (`veryslow`/`placebo` are impractical at our bitrates). Server-
+    # side filter is authoritative — frontend can't ask for `veryslow`
+    # even by hand.
+    X264_PRESETS = frozenset({
+        "ultrafast", "fast", "medium", "slow"
+    })
 
     @classmethod
     def from_json(cls, data) -> "JobConfig":
@@ -74,6 +84,10 @@ class JobConfig:
                 out["watermark_font_size"] = 28
         if "watermark_enabled" in data and isinstance(data["watermark_enabled"], bool):
             out["watermark_enabled"] = data["watermark_enabled"]
+        if "encoder_preset" in data and isinstance(data["encoder_preset"], str):
+            preset = data["encoder_preset"].lower().strip()
+            if preset in cls.X264_PRESETS:
+                out["encoder_preset"] = preset
         if "use_cookies" in data and isinstance(data["use_cookies"], bool):
             out["use_cookies"] = data["use_cookies"]
         return cls(**out)  # type: ignore[arg-type]

@@ -1,6 +1,7 @@
 <script lang="ts">
   import Header from '$lib/components/Header.svelte';
   import Hero from '$lib/components/Hero.svelte';
+  import HelpModal from '$lib/components/HelpModal.svelte';
   import JobCard from '$lib/components/JobCard.svelte';
   import QueueDrawer from '$lib/components/QueueDrawer.svelte';
   import SettingsModal from '$lib/components/SettingsModal.svelte';
@@ -10,6 +11,7 @@
   import { configStore } from '$lib/stores/config.svelte';
 
   let settingsOpen = $state(false);
+  let helpOpen = $state(false);
 
   onMount(() => {
     configStore.load();
@@ -35,6 +37,12 @@
   function closeSettings() {
     settingsOpen = false;
   }
+  function openHelp() {
+    helpOpen = true;
+  }
+  function closeHelp() {
+    helpOpen = false;
+  }
 </script>
 
 <svelte:head>
@@ -44,7 +52,7 @@
 </svelte:head>
 
 <div class="app">
-  <Header onOpenSettings={openSettings} />
+  <Header onOpenSettings={openSettings} onOpenHelp={openHelp} />
   <div class="layout">
     <main class="main">
       <Hero />
@@ -55,3 +63,4 @@
 </div>
 
 <SettingsModal bind:open={settingsOpen} onClose={closeSettings} />
+<HelpModal bind:open={helpOpen} onClose={closeHelp} />

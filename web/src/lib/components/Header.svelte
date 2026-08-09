@@ -4,9 +4,10 @@
 
   interface Props {
     onOpenSettings: () => void;
+    onOpenHelp: () => void;
   }
 
-  let { onOpenSettings }: Props = $props();
+  let { onOpenSettings, onOpenHelp }: Props = $props();
 
   // Derive the watched job's status straight from the polled list.
   const job = $derived(
@@ -46,6 +47,9 @@
     </div>
     <button class="icon-btn" onclick={onOpenSettings} aria-label="Open settings">
       ⚙
+    </button>
+    <button class="icon-btn" onclick={onOpenHelp} aria-label="Open help">
+      ?
     </button>
   </div>
 </header>

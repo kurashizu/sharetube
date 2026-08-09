@@ -174,6 +174,7 @@
         <span>History{history.length > HISTORY_PAGE_SIZE ? ` (${history.length})` : ''}</span>
         <button class="clear-btn" onclick={() => clearAll()} title="Clear all history">Clear all</button>
       </div>
+      <div class="history-note" title="Successful downloads auto-delete when their share URL expires (the share link becomes dead anyway). Errored/cancelled jobs are kept for 1 day.">Auto-deletes when share URL expires</div>
       {#each historyPageItems as j (j.id)}
         <div
           class="queue-item {activeJob.jobId === j.id ? 'active' : ''}"

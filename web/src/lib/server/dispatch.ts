@@ -22,6 +22,22 @@ const ZOMBIE_DISPATCHED_S = 15 * 60;    // dispatch fired, runner never started
 const ZOMBIE_RUNNING_S = 30 * 60;       // no progress pushes at all
 const CANCEL_ACK_TIMEOUT_S = 90;        // force-stop w/o runner ack → force-error
 
+// History auto-expiry: history items that linger forever just bloat the
+// jobs table and slow down /api/jobs. Reap them on every list/GET so
+// the table stays bounded without needing a cron trigger.
+//
+// Successful (done) jobs use their own share-URL expires_at — once
+// the share URL is gone, the share link in history is dead, so the
+// row has no value past that point. Error/cancelled jobs have no
+// share URL, so we keep them only briefly (history-context is useful
+// for debugging a recent failure but not for weeks).
+const HISTORY_FAILED_TTL_S = 1 * 86400;    // error/cancelled get 1 day
+const HISTORY_DONE_FALLBACK_S = 7 * 86400; // done rows without expires_at
+// Don't run the DELETE on every poll — D1 writes are not free. With
+// 5s polls, 5% probability = ~once a minute, plenty fast for cleanup
+// of rows that are days old and not actually cost-free to delete.
+const HISTORY_CLEANUP_PROBABILITY = 0.05;
+
 interface Env {
   DB: D1Database;
   GH_REPO?: string;
@@ -96,6 +112,51 @@ export async function cleanupZombies(env: Env): Promise<void> {
       WHERE status = 'running' AND cancelled = 1 AND cancelled_at IS NOT NULL
             AND cancelled_at < ?`
   ).bind(now, now - CANCEL_ACK_TIMEOUT_S).run();
+  // Reap finished history past its TTL so /api/jobs doesn't accumulate
+  // rows forever. Throttled to ~once a minute across all poll tabs.
+  if (Math.random() < HISTORY_CLEANUP_PROBABILITY) {
+    await cleanupExpiredHistory(env);
+  }
+}
+
+/**
+ * Hard-delete finished jobs past their per-status TTL.
+ *
+ *   done         — share URL is dead once its expires_at passes, so the
+ *                  row is purged then. expires_at is stored as epoch
+ *                  MILLISECONDS by the runner (cf-share API), so the
+ *                  comparison uses now-ms.
+ *
+ *   error/cancelled — no share URL exists, only failure context. Short
+ *                    TTL so recent failures stay visible for debugging
+ *                    but the table doesn't grow without bound. Uses
+ *                    updated_at in epoch seconds.
+ *
+ * Done rows without an expires_at (shouldn't happen but be defensive)
+ * fall back to a 7-day TTL so they don't live forever.
+ */
+export async function cleanupExpiredHistory(env: Env): Promise<void> {
+  const nowMs = Date.now();
+  const nowS = Math.floor(nowMs / 1000);
+  // Done rows whose share URL has expired.
+  await env.DB.prepare(
+    `DELETE FROM jobs
+      WHERE status = 'done'
+        AND expires_at IS NOT NULL
+        AND expires_at < ?`
+  ).bind(nowMs).run();
+  // Done rows that somehow have no expires_at — cap at 7d.
+  await env.DB.prepare(
+    `DELETE FROM jobs
+      WHERE status = 'done'
+        AND expires_at IS NULL
+        AND updated_at < ?`
+  ).bind(nowS - HISTORY_DONE_FALLBACK_S).run();
+  // Error / cancelled — keep 1d only.
+  await env.DB.prepare(
+    `DELETE FROM jobs
+      WHERE status IN ('error', 'cancelled') AND updated_at < ?`
+  ).bind(nowS - HISTORY_FAILED_TTL_S).run();
 }
 
 /**

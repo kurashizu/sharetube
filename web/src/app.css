@@ -817,6 +817,16 @@ a:hover {
   background: var(--error-soft);
 }
 
+.history-note {
+  font-size: 10px;
+  color: var(--text-muted);
+  opacity: 0.7;
+  padding: 0 0 6px 0;
+  margin: -2px 0 4px 0;
+  font-style: italic;
+}
+}
+
 .sidebar-empty {
   padding: 24px 16px;
   text-align: center;

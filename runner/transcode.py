@@ -163,8 +163,10 @@ def _escape_drawtext(text: str) -> str:
     # `'` in the title (e.g. "Feel Like Makin' Love") would otherwise
     # terminate the value early and produce a malformed filter graph
     # that ffmpeg rejects with a non-zero exit code (observed: 234).
-    # In drawtext's expression language `\'` represents a single quote.
-    text = text.replace("'", "\\'")
+    # The ffmpeg filtergraph lexer treats '' (two adjacent single
+    # quotes inside a quoted string) as a literal single quote — the
+    # same convention as SQL string literals — so we substitute that.
+    text = text.replace("'", "''")
     return text
 
 

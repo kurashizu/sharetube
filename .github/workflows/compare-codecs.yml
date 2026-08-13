@@ -182,18 +182,17 @@ jobs:
           ls -lh src.mp4
           ffprobe -v error -show_entries format=duration,size -show_entries stream=codec_name,width,height,r_frame_rate -of default=nw=1 src.mp4
 
-      - name: Encode (h264_videotoolbox + watermark)
+      - name: Encode (h264_videotoolbox)
         env:
           VBITRATE: ${{ inputs.video_bitrate }}
         run: |
           set -euo pipefail
-          FONT=/System/Library/Fonts/Helvetica.ttc
-          [ -f "$FONT" ] || FONT=/System/Library/Fonts/HelveticaNeue.ttc
-          ls -l "$FONT"
+          # No drawtext: Homebrew's ffmpeg doesn't ship libfreetype by
+          # default (the ffmpeg-full formula does), so the drawtext
+          # filter isn't available here. Pure encode comparison anyway.
           START_NS=$(date +%s%N)
           ffmpeg -y -hide_banner \
             -i src.mp4 \
-            -vf "drawtext=fontfile='${FONT}':text='VideoToolbox %{pts\\:hms}':fontsize=24:fontcolor=white:x=10:y=10:box=1:boxcolor=black@0.5:boxborderw=4" \
             -c:v h264_videotoolbox -b:v "${VBITRATE}" -realtime 1 -allow_sw 1 \
             -c:a aac -b:a 128k \
             -movflags +faststart \

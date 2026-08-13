@@ -59,77 +59,154 @@ jobs:
         with:
           python-version: "3.13"
 
-      # ── Tools ────────────────────────────────────────────────────────
+      # ── Tool versions & cache ─────────────────────────────────
+      # Only yt-dlp is version-checked at run time (it has clean
+      # numbered tags and updates often). Everything else — ffmpeg
+      # (ffmpeg-full bottle), deno, omni-client, CJK fonts, brew
+      # bottles — is effectively frozen and lives under a stable cache
+      # key, so cached runs skip the downloads entirely.
+      #
+      # Mirror of the same pattern used in sharetube.yml.
+
+      - name: Resolve yt-dlp version
+        id: yt
+        run: |
+          set -euo pipefail
+          YT_DLP_VER=$(curl -fsSL https://api.github.com/repos/yt-dlp/yt-dlp/releases/latest \
+            | python3 -c "import json,sys;print(json.load(sys.stdin)['tag_name'])")
+          echo "v=${YT_DLP_VER}" >> "$GITHUB_OUTPUT"
 
       - name: Install deno (brew)
+        # Mac brew install deno isn't part of the frozen-tools cache
+        # because deno lives in /opt/homebrew and our cache key can't
+        # reach across the cellar cheaply. The bottle itself is small
+        # (~60 MB) and brew has its own bottle cache, so this is the
+        # irreducible cost — but warm runs reuse the bottle and only
+        # do the symlink, finishing in ~1 s.
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: '1'
+          HOMEBREW_NO_ANALYTICS: '1'
         run: brew install deno
-      - name: Cache frozen tools (ffmpeg, yt-dlp, omni-client, fonts, brew bottles)
+
+      # yt-dlp alone — new version = new key, restore-keys falls back
+      # to the previous release so we can update the binary in place.
+      - name: Cache yt-dlp
+        id: ytdlp
+        uses: actions/cache@v6
+        with:
+          path: ~/.local/tools/yt-dlp
+          key: ytdlp-mac-${{ steps.yt.outputs.v }}
+          restore-keys: |
+            ytdlp-mac-
+
+      # Everything else (ffmpeg, omni-client, brew bottles, fonts) —
+      # frozen; bump the -3 suffix manually when you want to refresh
+      # them. NOTE: paths are enumerated (NOT ~/.local/tools) so the
+      # frozen cache never contains yt-dlp — that would shadow the
+      # separate version-checked yt-dlp cache above.
+      - name: Cache frozen tools
         id: fixed
         uses: actions/cache@v6
         with:
           path: |
             ~/.local/tools/ffmpeg
             ~/.local/tools/ffprobe
-            ~/.local/tools/yt-dlp
             ~/.local/tools/omni-client
-            ~/.local/share/fonts
             ~/Library/Caches/Homebrew
-          key: macos26-tools-denov${{ vars.DENO_VER }}-omni-${{ vars.OMNIPROXY_VER }}-ffmpeg-brew-2
+            ~/.local/share/fonts
+          key: macos26-fixed-denov${{ vars.DENO_VER }}-omni-${{ vars.OMNIPROXY_VER }}-ffmpeg-brew-3
 
-      - name: Install frozen tools
+      - name: Install yt-dlp
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.local/tools
+          # Refresh unless the restored binary already matches the
+          # latest release (restore-keys may fall back to an older one).
+          CURRENT=$(~/.local/tools/yt-dlp --version 2>/dev/null || true)
+          echo "cached yt-dlp: ${CURRENT:-<none>}, latest: ${{ steps.yt.outputs.v }}"
+          if [ -x ~/.local/tools/yt-dlp ] && [ "${CURRENT}" = "${{ steps.yt.outputs.v }}" ]; then
+            echo "yt-dlp already up to date; skipping download"
+            exit 0
+          fi
+          curl -fsSL --max-time 120 --retry 2 -o ~/.local/tools/yt-dlp \
+            "https://github.com/yt-dlp/yt-dlp/releases/download/${{ steps.yt.outputs.v }}/yt-dlp_macos"
+          chmod +x ~/.local/tools/yt-dlp
+          ~/.local/tools/yt-dlp --version
+
+      # ffmpeg-full + omni-client + font. Skipped on warm cache.
+      # brew install ffmpeg-full is ~20 s even when every bottle is
+      # already on disk — the formula needs to be re-read, dependencies
+      # re-enumerated, the install plan rebuilt — so guarding the step
+      # is the actual win. The bottles themselves ride in the cache
+      # via ~/Library/Caches/Homebrew so even cold installs are quick.
+      - name: Install frozen tools (brew)
+        if: steps.fixed.outputs.cache-hit != 'true'
         env:
-          # Skip brew's tap auto-update + analytics. We don't need
-          # fresh formula info; the bottled ffmpeg-full we ship is the
-          # same one Homebrew ships today. Saves ~2–4 s on cold too.
           HOMEBREW_NO_AUTO_UPDATE: '1'
           HOMEBREW_NO_ANALYTICS: '1'
         run: |
           set -euo pipefail
           mkdir -p ~/.local/tools ~/.local/share/fonts
 
-          # ffmpeg + ffprobe from Homebrew (the macOS image ships Apple's
-          # stripped ffmpeg that lacks VideoToolbox). Use the `ffmpeg-full`
-          # formula — the regular `ffmpeg` is built without libfreetype,
-          # which means the drawtext filter we need for the watermark
-          # isn't available. Symlink into ~/.local/tools so the runner
-          # picks them up via PATH.
+          # ffmpeg-full: the Homebrew image's stock ffmpeg is stripped
+          # (no VideoToolbox) and the ffmpeg-full formula is the one
+          # that actually enables --enable-libfreetype (needed by our
+          # drawtext watermark).
           brew install ffmpeg-full
+
+          # OmniProxy client: local SOCKS5 → WebSocket → Oracle exit IP.
+          curl -fsSL --max-time 120 --retry 2 -o /tmp/omni.tar.xz \
+            "https://github.com/kurashizu/OmniProxy/releases/download/${{ vars.OMNIPROXY_VER }}/omni-proxy-macos-aarch64.tar.xz"
+          tar xJf /tmp/omni.tar.xz -C /tmp
+          mv /tmp/dist/client ~/.local/tools/omni-client
+          chmod +x ~/.local/tools/omni-client
+          rm -f /tmp/omni.tar.xz
+
+          # NotoSansCJK-Regular.ttc from the notofonts/noto-cjk mirror.
+          curl -fsSL --max-time 120 --retry 2 -o ~/.local/share/fonts/NotoSansCJK-Regular.ttc \
+            "https://github.com/notofonts/noto-cjk/raw/main/Sans/OTC/NotoSansCJK-Regular.ttc"
+
+      # Always relink ffmpeg + verify the cache restored what we need.
+      # Idempotent: no-op on a warm cache, fresh symlinks on a cold
+      # cache. Keeps the runner error message informative if the
+      # install step above was skipped but the cellar somehow went
+      # missing (shouldn't happen, but cheap insurance).
+      - name: Link frozen tools into PATH
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.local/tools ~/.local/share/fonts
           ln -sf "$(brew --prefix ffmpeg-full)/bin/ffmpeg" ~/.local/tools/ffmpeg
           ln -sf "$(brew --prefix ffmpeg-full)/bin/ffprobe" ~/.local/tools/ffprobe
           ~/.local/tools/ffmpeg -encoders | grep h264_videotoolbox
           ~/.local/tools/ffmpeg -filters | grep drawtext
-
-          # yt-dlp + omni-client + font are downloaded only when the
-          # frozen-tools cache missed; on cache hits they were already
-          # restored by the previous `actions/cache` step.
-          if [ ! -x ~/.local/tools/yt-dlp ]; then
-            curl -fsSL --max-time 120 --retry 2 -o ~/.local/tools/yt-dlp \
-              "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp"
-            chmod +x ~/.local/tools/yt-dlp
-          fi
-          ~/.local/tools/yt-dlp --version
-
-          if [ ! -x ~/.local/tools/omni-client ]; then
-            curl -fsSL --max-time 120 --retry 2 -o /tmp/omni.tar.xz \
-              "https://github.com/kurashizu/OmniProxy/releases/download/${{ vars.OMNIPROXY_VER }}/omni-proxy-macos-aarch64.tar.xz"
-            tar xJf /tmp/omni.tar.xz -C /tmp
-            mv /tmp/dist/client ~/.local/tools/omni-client
-            chmod +x ~/.local/tools/omni-client
-          fi
-
-          if [ ! -f ~/.local/share/fonts/NotoSansCJK-Regular.ttc ]; then
-            curl -fsSL --max-time 120 --retry 2 -o ~/.local/share/fonts/NotoSansCJK-Regular.ttc \
-              "https://github.com/notofonts/noto-cjk/raw/main/Sans/OTC/NotoSansCJK-Regular.ttc"
-          fi
-
           ls -lh ~/.local/tools/ffmpeg ~/.local/tools/yt-dlp ~/.local/tools/omni-client ~/.local/share/fonts/NotoSansCJK-Regular.ttc
 
       - name: Add tools to PATH
         run: echo "$HOME/.local/tools" >> "$GITHUB_PATH"
 
-      # yt-dlp[default] provides the EJS challenge solver scripts; the
-      # yt-dlp zipapp we downloaded imports them from the package.
+      # yt-dlp[default] provides the EJS challenge solver scripts that the
+      # standalone zipapp imports on demand. The set of packages and
+      # their pinned versions change rarely, so we cache the user-site
+      # and only reinstall if the marker is stale.
+      - name: Cache yt-dlp Python deps
+        id: pypkgs
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.local/lib/python3.13/site-packages/yt_dlp
+            ~/.local/lib/python3.13/site-packages/yt_dlp-*.dist-info
+            ~/.local/lib/python3.13/site-packages/brotli
+            ~/.local/lib/python3.13/site-packages/brotlicffi
+            ~/.local/lib/python3.13/site-packages/certifi
+            ~/.local/lib/python3.13/site-packages/mutagen
+            ~/.local/lib/python3.13/site-packages/pycryptodomex
+            ~/.local/lib/python3.13/site-packages/requests
+            ~/.local/lib/python3.13/site-packages/urllib3
+            ~/.local/lib/python3.13/site-packages/websockets
+          key: macos26-yt-dlp-pydeps-1
+
       - name: Install yt-dlp Python deps
+        if: steps.pypkgs.outputs.cache-hit != 'true'
         run: python3 -m pip install --user --break-system-packages --quiet 'yt-dlp[default]'
 
       # ── Cookies decryption ─────────────────────────────────────────

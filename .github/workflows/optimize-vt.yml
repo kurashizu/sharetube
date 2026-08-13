@@ -1,0 +1,266 @@
+name: optimize-vt
+
+# After compare-codecs confirmed h264_videotoolbox works on
+# macos-14, this workflow explores further speed wins:
+#
+#  - hwaccel: enable VideoToolbox hardware decoding too (today
+#    the decode stage is software libavcodec; might leave frames
+#    on the GPU before the drawtext/scale pass).
+#  - prio_speed: VT-specific knob that biases the encoder toward
+#    latency over quality. Should never reduce encode speed.
+#  - macos-15: latest GitHub-hosted image; same Apple Silicon
+#    chip, but a newer ffmpeg/macOS may have better h264_videotoolbox.
+#
+# All variants use the SAME 155s 720p source we used in the
+# initial comparison, so numbers are directly comparable.
+
+on:
+  workflow_dispatch:
+
+jobs:
+  vt-baseline:
+    name: vt · baseline
+    runs-on: macos-14
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+      - run: brew install ffmpeg deno
+      - run: python3 -m pip install --user --break-system-packages --quiet 'yt-dlp[default]'
+      - name: Download 7yh64THGjCE (720p)
+        env:
+          COOKIES_PASS: ${{ secrets.COOKIES_PASS }}
+        run: |
+          set -euo pipefail
+          [ -n "${COOKIES_PASS:-}" ] && [ -f secrets/cookies.txt.enc ] && \
+            openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -salt \
+              -pass "env:COOKIES_PASS" \
+              -in secrets/cookies.txt.enc -out /tmp/cookies.txt && \
+            chmod 600 /tmp/cookies.txt
+          COOKIE_ARGS=()
+          [ -f /tmp/cookies.txt ] && COOKIE_ARGS=(--cookies /tmp/cookies.txt)
+          python3 -m yt_dlp --no-playlist --no-progress \
+            "${COOKIE_ARGS[@]}" \
+            -f "bv*[height<=720]+ba/b[height<=720]" \
+            --merge-output-format mp4 -o src.mp4 \
+            'https://youtu.be/7yh64THGjCE'
+          ffprobe -v error -show_entries format=duration -of default=nw=1 src.mp4
+      - name: Encode (baseline)
+        run: |
+          set -euo pipefail
+          START_NS=$(python3 -c 'import time; print(int(time.time()*1e9))')
+          ffmpeg -y -hide_banner \
+            -i src.mp4 \
+            -c:v h264_videotoolbox -b:v 600k -realtime 1 -allow_sw 1 \
+            -c:a aac -b:a 128k -movflags +faststart \
+            out.mp4 2>&1 | tee encode.log | tail -5
+          END_NS=$(python3 -c 'import time; print(int(time.time()*1e9))')
+          echo "RESULT_BASELINE wall_ms=$(( (END_NS - START_NS) / 1000000 )) speed=$(grep -oE 'speed= *[0-9.]+x' encode.log | tail -1)"
+
+  vt-hwaccel:
+    name: vt · + hwaccel decode
+    runs-on: macos-14
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+      - run: brew install ffmpeg deno
+      - run: python3 -m pip install --user --break-system-packages --quiet 'yt-dlp[default]'
+      - name: Download source
+        env:
+          COOKIES_PASS: ${{ secrets.COOKIES_PASS }}
+        run: |
+          set -euo pipefail
+          [ -n "${COOKIES_PASS:-}" ] && [ -f secrets/cookies.txt.enc ] && \
+            openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -salt \
+              -pass "env:COOKIES_PASS" \
+              -in secrets/cookies.txt.enc -out /tmp/cookies.txt && \
+            chmod 600 /tmp/cookies.txt
+          COOKIE_ARGS=()
+          [ -f /tmp/cookies.txt ] && COOKIE_ARGS=(--cookies /tmp/cookies.txt)
+          python3 -m yt_dlp --no-playlist --no-progress \
+            "${COOKIE_ARGS[@]}" \
+            -f "bv*[height<=720]+ba/b[height<=720]" \
+            --merge-output-format mp4 -o src.mp4 \
+            'https://youtu.be/7yh64THGjCE'
+      - name: Encode (+ hwaccel videotoolbox)
+        run: |
+          set -euo pipefail
+          START_NS=$(python3 -c 'import time; print(int(time.time()*1e9))')
+          ffmpeg -y -hide_banner \
+            -hwaccel videotoolbox -hwaccel_output_format videotoolbox \
+            -i src.mp4 \
+            -c:v h264_videotoolbox -b:v 600k -realtime 1 -allow_sw 1 \
+            -c:a aac -b:a 128k -movflags +faststart \
+            out.mp4 2>&1 | tee encode.log | tail -5
+          END_NS=$(python3 -c 'import time; print(int(time.time()*1e9))')
+          echo "RESULT_HWACCEL wall_ms=$(( (END_NS - START_NS) / 1000000 )) speed=$(grep -oE 'speed= *[0-9.]+x' encode.log | tail -1)"
+
+  vt-prio-speed:
+    name: vt · + prio_speed 1
+    runs-on: macos-14
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+      - run: brew install ffmpeg deno
+      - run: python3 -m pip install --user --break-system-packages --quiet 'yt-dlp[default]'
+      - name: Download source
+        env:
+          COOKIES_PASS: ${{ secrets.COOKIES_PASS }}
+        run: |
+          set -euo pipefail
+          [ -n "${COOKIES_PASS:-}" ] && [ -f secrets/cookies.txt.enc ] && \
+            openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -salt \
+              -pass "env:COOKIES_PASS" \
+              -in secrets/cookies.txt.enc -out /tmp/cookies.txt && \
+            chmod 600 /tmp/cookies.txt
+          COOKIE_ARGS=()
+          [ -f /tmp/cookies.txt ] && COOKIE_ARGS=(--cookies /tmp/cookies.txt)
+          python3 -m yt_dlp --no-playlist --no-progress \
+            "${COOKIE_ARGS[@]}" \
+            -f "bv*[height<=720]+ba/b[height<=720]" \
+            --merge-output-format mp4 -o src.mp4 \
+            'https://youtu.be/7yh64THGjCE'
+      - name: Encode (+ prio_speed 1)
+        run: |
+          set -euo pipefail
+          START_NS=$(python3 -c 'import time; print(int(time.time()*1e9))')
+          ffmpeg -y -hide_banner \
+            -i src.mp4 \
+            -c:v h264_videotoolbox -b:v 600k -realtime 1 -allow_sw 1 \
+            -prio_speed 1 \
+            -c:a aac -b:a 128k -movflags +faststart \
+            out.mp4 2>&1 | tee encode.log | tail -5
+          END_NS=$(python3 -c 'import time; print(int(time.time()*1e9))')
+          echo "RESULT_PRIO_SPEED wall_ms=$(( (END_NS - START_NS) / 1000000 )) speed=$(grep -oE 'speed= *[0-9.]+x' encode.log | tail -1)"
+
+  vt-hwaccel-speed:
+    name: vt · hwaccel + prio_speed
+    runs-on: macos-14
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+      - run: brew install ffmpeg deno
+      - run: python3 -m pip install --user --break-system-packages --quiet 'yt-dlp[default]'
+      - name: Download source
+        env:
+          COOKIES_PASS: ${{ secrets.COOKIES_PASS }}
+        run: |
+          set -euo pipefail
+          [ -n "${COOKIES_PASS:-}" ] && [ -f secrets/cookies.txt.enc ] && \
+            openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -salt \
+              -pass "env:COOKIES_PASS" \
+              -in secrets/cookies.txt.enc -out /tmp/cookies.txt && \
+            chmod 600 /tmp/cookies.txt
+          COOKIE_ARGS=()
+          [ -f /tmp/cookies.txt ] && COOKIE_ARGS=(--cookies /tmp/cookies.txt)
+          python3 -m yt_dlp --no-playlist --no-progress \
+            "${COOKIE_ARGS[@]}" \
+            -f "bv*[height<=720]+ba/b[height<=720]" \
+            --merge-output-format mp4 -o src.mp4 \
+            'https://youtu.be/7yh64THGjCE'
+      - name: Encode (hwaccel + prio_speed)
+        run: |
+          set -euo pipefail
+          START_NS=$(python3 -c 'import time; print(int(time.time()*1e9))')
+          ffmpeg -y -hide_banner \
+            -hwaccel videotoolbox -hwaccel_output_format videotoolbox \
+            -i src.mp4 \
+            -c:v h264_videotoolbox -b:v 600k -realtime 1 -allow_sw 1 \
+            -prio_speed 1 \
+            -c:a aac -b:a 128k -movflags +faststart \
+            out.mp4 2>&1 | tee encode.log | tail -5
+          END_NS=$(python3 -c 'import time; print(int(time.time()*1e9))')
+          echo "RESULT_HWACCEL_SPEED wall_ms=$(( (END_NS - START_NS) / 1000000 )) speed=$(grep -oE 'speed= *[0-9.]+x' encode.log | tail -1)"
+
+  vt-macos15:
+    name: vt · macos-15 (newest image)
+    runs-on: macos-15
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+      - run: brew install ffmpeg deno
+      - run: python3 -m pip install --user --break-system-packages --quiet 'yt-dlp[default]'
+      - name: Download source
+        env:
+          COOKIES_PASS: ${{ secrets.COOKIES_PASS }}
+        run: |
+          set -euo pipefail
+          [ -n "${COOKIES_PASS:-}" ] && [ -f secrets/cookies.txt.enc ] && \
+            openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -salt \
+              -pass "env:COOKIES_PASS" \
+              -in secrets/cookies.txt.enc -out /tmp/cookies.txt && \
+            chmod 600 /tmp/cookies.txt
+          COOKIE_ARGS=()
+          [ -f /tmp/cookies.txt ] && COOKIE_ARGS=(--cookies /tmp/cookies.txt)
+          python3 -m yt_dlp --no-playlist --no-progress \
+            "${COOKIE_ARGS[@]}" \
+            -f "bv*[height<=720]+ba/b[height<=720]" \
+            --merge-output-format mp4 -o src.mp4 \
+            'https://youtu.be/7yh64THGjCE'
+      - name: Encode (macos-15 baseline)
+        run: |
+          set -euo pipefail
+          START_NS=$(python3 -c 'import time; print(int(time.time()*1e9))')
+          ffmpeg -y -hide_banner \
+            -i src.mp4 \
+            -c:v h264_videotoolbox -b:v 600k -realtime 1 -allow_sw 1 \
+            -c:a aac -b:a 128k -movflags +faststart \
+            out.mp4 2>&1 | tee encode.log | tail -5
+          END_NS=$(python3 -c 'import time; print(int(time.time()*1e9))')
+          echo "RESULT_MACOS15 wall_ms=$(( (END_NS - START_NS) / 1000000 )) speed=$(grep -oE 'speed= *[0-9.]+x' encode.log | tail -1)"
+
+  vt-macos15-speed:
+    name: vt · macos-15 + hwaccel + speed
+    runs-on: macos-15
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+      - run: brew install ffmpeg deno
+      - run: python3 -m pip install --user --break-system-packages --quiet 'yt-dlp[default]'
+      - name: Download source
+        env:
+          COOKIES_PASS: ${{ secrets.COOKIES_PASS }}
+        run: |
+          set -euo pipefail
+          [ -n "${COOKIES_PASS:-}" ] && [ -f secrets/cookies.txt.enc ] && \
+            openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -salt \
+              -pass "env:COOKIES_PASS" \
+              -in secrets/cookies.txt.enc -out /tmp/cookies.txt && \
+            chmod 600 /tmp/cookies.txt
+          COOKIE_ARGS=()
+          [ -f /tmp/cookies.txt ] && COOKIE_ARGS=(--cookies /tmp/cookies.txt)
+          python3 -m yt_dlp --no-playlist --no-progress \
+            "${COOKIE_ARGS[@]}" \
+            -f "bv*[height<=720]+ba/b[height<=720]" \
+            --merge-output-format mp4 -o src.mp4 \
+            'https://youtu.be/7yh64THGjCE'
+      - name: Encode (macos-15 + everything)
+        run: |
+          set -euo pipefail
+          START_NS=$(python3 -c 'import time; print(int(time.time()*1e9))')
+          ffmpeg -y -hide_banner \
+            -hwaccel videotoolbox -hwaccel_output_format videotoolbox \
+            -i src.mp4 \
+            -c:v h264_videotoolbox -b:v 600k -realtime 1 -allow_sw 1 \
+            -prio_speed 1 \
+            -c:a aac -b:a 128k -movflags +faststart \
+            out.mp4 2>&1 | tee encode.log | tail -5
+          END_NS=$(python3 -c 'import time; print(int(time.time()*1e9))')
+          echo "RESULT_MACOS15_FULL wall_ms=$(( (END_NS - START_NS) / 1000000 )) speed=$(grep -oE 'speed= *[0-9.]+x' encode.log | tail -1)"

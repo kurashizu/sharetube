@@ -34,13 +34,18 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
 
-      - name: Install ffmpeg + yt-dlp
+      - name: Install ffmpeg + yt-dlp + deno
         run: |
           set -euo pipefail
           sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends ffmpeg
+          sudo apt-get install -y --no-install-recommends ffmpeg curl
           ffmpeg -version | head -1
-          python3 -m pip install --quiet yt-dlp
+          # yt-dlp[default] pulls the EJS challenge solver script
+          # bundle; deno is the JS runtime that runs it. YouTube
+          # recently tightened n-challenge solving to require both.
+          sudo curl -fsSL https://deno.land/install.sh | sudo DENO_INSTALL=/usr/local sh -s -- -y
+          /usr/local/bin/deno --version
+          sudo python3 -m pip install --break-system-packages --quiet 'yt-dlp[default]'
           yt-dlp --version
 
       - name: Decrypt cookies (YouTube bot wall)
@@ -116,24 +121,22 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
 
-      - name: Install ffmpeg with VideoToolbox + yt-dlp
+      - name: Install ffmpeg with VideoToolbox + yt-dlp + deno
         run: |
           set -euo pipefail
           # GitHub macOS runner ships with Apple's stripped ffmpeg
           # (no h264_videotoolbox). Homebrew's ffmpeg has it enabled
-          # by default. Reinstall + force-link so it shadows the
+          # by default; reinstall to make sure it's in front of the
           # system binary on PATH.
-          brew install ffmpeg
-          echo "/opt/homebrew/bin/ffmpeg" > /tmp/ffmpeg_prefix
-          HASH=$(brew --prefix ffmpeg)
-          echo "ffmpeg prefix: $HASH"
+          brew install ffmpeg deno
           which ffmpeg
           ffmpeg -version | head -1
           ffmpeg -encoders 2>/dev/null | grep h264_videotoolbox || \
             (echo "FAIL: h264_videotoolbox still missing after brew install" && exit 1)
-          # yt-dlp + JS runtime for player extraction.
-          brew install deno
-          python3 -m pip install --user --quiet yt-dlp
+          which deno && deno --version
+          # macOS system Python blocks pip (PEP 668); force-install
+          # yt-dlp[default] into the user site-packages.
+          python3 -m pip install --user --break-system-packages --quiet 'yt-dlp[default]'
           export PATH="$HOME/Library/Python/bin:$PATH"
           yt-dlp --version
 

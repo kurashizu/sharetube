@@ -43,13 +43,41 @@ jobs:
           python3 -m pip install --quiet yt-dlp
           yt-dlp --version
 
+      - name: Decrypt cookies (YouTube bot wall)
+        if: hashFiles('secrets/cookies.txt.enc') != ''
+        env:
+          COOKIES_PASS: ${{ secrets.COOKIES_PASS }}
+        run: |
+          set -euo pipefail
+          if [ -z "${COOKIES_PASS:-}" ]; then
+            echo "::warning::COOKIES_PASS not set; downloads may hit bot wall"
+            exit 0
+          fi
+          if [ ! -f secrets/cookies.txt.enc ]; then
+            echo "::warning::secrets/cookies.txt.enc missing"
+            exit 0
+          fi
+          mkdir -p /tmp/cookies
+          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -salt \
+            -pass "env:COOKIES_PASS" \
+            -in secrets/cookies.txt.enc \
+            -out /tmp/cookies/cookies.txt
+          chmod 600 /tmp/cookies/cookies.txt
+          ls -lh /tmp/cookies/cookies.txt
+          echo "cookies decrypted ($(wc -l < /tmp/cookies/cookies.txt) lines)"
+
       - name: Download source (capped)
         env:
           VIDEO_URL: ${{ inputs.video_url }}
           MAX_HEIGHT: ${{ inputs.max_height }}
         run: |
           set -euo pipefail
+          COOKIE_ARGS=()
+          if [ -f /tmp/cookies/cookies.txt ]; then
+            COOKIE_ARGS=(--cookies /tmp/cookies/cookies.txt)
+          fi
           yt-dlp --no-playlist --no-progress \
+            "${COOKIE_ARGS[@]}" \
             -f "bv*[height<=${MAX_HEIGHT}]+ba/b[height<=${MAX_HEIGHT}]" \
             --merge-output-format mp4 \
             -o src.mp4 \
@@ -88,15 +116,49 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
 
-      - name: Install yt-dlp (ffmpeg is preinstalled)
+      - name: Install ffmpeg with VideoToolbox + yt-dlp
         run: |
           set -euo pipefail
-          which ffmpeg && ffmpeg -version | head -1
+          # GitHub macOS runner ships with Apple's stripped ffmpeg
+          # (no h264_videotoolbox). Homebrew's ffmpeg has it enabled
+          # by default. Reinstall + force-link so it shadows the
+          # system binary on PATH.
+          brew install ffmpeg
+          echo "/opt/homebrew/bin/ffmpeg" > /tmp/ffmpeg_prefix
+          HASH=$(brew --prefix ffmpeg)
+          echo "ffmpeg prefix: $HASH"
+          which ffmpeg
+          ffmpeg -version | head -1
           ffmpeg -encoders 2>/dev/null | grep h264_videotoolbox || \
-            (echo "FAIL: h264_videotoolbox not in ffmpeg encoders" && exit 1)
+            (echo "FAIL: h264_videotoolbox still missing after brew install" && exit 1)
+          # yt-dlp + JS runtime for player extraction.
+          brew install deno
           python3 -m pip install --user --quiet yt-dlp
           export PATH="$HOME/Library/Python/bin:$PATH"
           yt-dlp --version
+
+      - name: Decrypt cookies (YouTube bot wall)
+        if: hashFiles('secrets/cookies.txt.enc') != ''
+        env:
+          COOKIES_PASS: ${{ secrets.COOKIES_PASS }}
+        run: |
+          set -euo pipefail
+          if [ -z "${COOKIES_PASS:-}" ]; then
+            echo "::warning::COOKIES_PASS not set; downloads may hit bot wall"
+            exit 0
+          fi
+          if [ ! -f secrets/cookies.txt.enc ]; then
+            echo "::warning::secrets/cookies.txt.enc missing"
+            exit 0
+          fi
+          mkdir -p /tmp/cookies
+          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -salt \
+            -pass "env:COOKIES_PASS" \
+            -in secrets/cookies.txt.enc \
+            -out /tmp/cookies/cookies.txt
+          chmod 600 /tmp/cookies/cookies.txt
+          ls -lh /tmp/cookies/cookies.txt
+          echo "cookies decrypted ($(wc -l < /tmp/cookies/cookies.txt) lines)"
 
       - name: Download source (capped)
         env:
@@ -105,7 +167,12 @@ jobs:
         run: |
           set -euo pipefail
           export PATH="$HOME/Library/Python/bin:$PATH"
+          COOKIE_ARGS=()
+          if [ -f /tmp/cookies/cookies.txt ]; then
+            COOKIE_ARGS=(--cookies /tmp/cookies/cookies.txt)
+          fi
           yt-dlp --no-playlist --no-progress \
+            "${COOKIE_ARGS[@]}" \
             -f "bv*[height<=${MAX_HEIGHT}]+ba/b[height<=${MAX_HEIGHT}]" \
             --merge-output-format mp4 \
             -o src.mp4 \
@@ -118,7 +185,6 @@ jobs:
           VBITRATE: ${{ inputs.video_bitrate }}
         run: |
           set -euo pipefail
-          # macOS ships font at a slightly different path; fall back if missing.
           FONT=/System/Library/Fonts/Helvetica.ttc
           [ -f "$FONT" ] || FONT=/System/Library/Fonts/HelveticaNeue.ttc
           ls -l "$FONT"

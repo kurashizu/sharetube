@@ -107,11 +107,11 @@ jobs:
           restore-keys: |
             ytdlp-mac-
 
-      # Everything else (Homebrew ffmpeg-full + omni-client + fonts) —
-      # frozen; bump the -5 suffix manually when you want to refresh
-      # them. The Homebrew Cellar and opt symlinks are cached at their
-      # original absolute paths because macOS dylibs inside ffmpeg-full
-      # refer to /opt/homebrew/Cellar/... by absolute install name.
+      # Everything else (portable ffmpeg bundle + omni-client + fonts) —
+      # frozen; bump the -6 suffix manually when refreshing them.
+      # Never cache the Homebrew Cellar: it includes every dependency
+      # and image-installed formula, which grew to ~2 GB. The bundle
+      # below contains only ffmpeg/ffprobe and their actual dylib closure.
       # The frozen cache never contains yt-dlp — that has its own
       # version-checked cache above.
       - name: Cache frozen tools
@@ -119,12 +119,10 @@ jobs:
         uses: actions/cache@v6
         with:
           path: |
-            /opt/homebrew/Cellar
-            /opt/homebrew/opt
+            ~/.local/tools/ffmpeg-bundle
             ~/.local/tools/omni-client
-            ~/Library/Caches/Homebrew
             ~/.local/share/fonts
-          key: macos26-fixed-denov${{ vars.DENO_VER }}-omni-${{ vars.OMNIPROXY_VER }}-ffmpeg-brew-5
+          key: macos26-fixed-denov${{ vars.DENO_VER }}-omni-${{ vars.OMNIPROXY_VER }}-ffmpeg-bundle-1
 
       - name: Install yt-dlp
         run: |
@@ -144,10 +142,10 @@ jobs:
           ~/.local/tools/yt-dlp --version
 
       # ffmpeg-full + omni-client + font. Skipped on warm cache.
-      # brew install ffmpeg-full is ~20 s even when every bottle is
-      # already on disk, so the cache-hit guard is the actual win.
-      # The cold install populates /opt/homebrew/Cellar and /opt/homebrew/opt;
-      # actions/cache then restores those exact paths on the next runner.
+      # Homebrew is used only on a cache miss. Its ffmpeg-full formula
+      # is dynamically linked to many Homebrew libraries, so build a
+      # small self-contained bundle once instead of caching the entire
+      # Cellar.
       - name: Install frozen tools (brew)
         if: steps.fixed.outputs.cache-hit != 'true'
         env:
@@ -156,10 +154,53 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p ~/.local/tools ~/.local/share/fonts
-
-          # ffmpeg-full: the stock formula lacks VideoToolbox and
-          # libfreetype, both required by the Mac runner.
           brew install ffmpeg-full
+
+          BUNDLE="$HOME/.local/tools/ffmpeg-bundle"
+          rm -rf "$BUNDLE"
+          mkdir -p "$BUNDLE/bin" "$BUNDLE/lib"
+          cp -L "$(brew --prefix ffmpeg-full)/bin/ffmpeg" "$BUNDLE/bin/ffmpeg"
+          cp -L "$(brew --prefix ffmpeg-full)/bin/ffprobe" "$BUNDLE/bin/ffprobe"
+
+          # Collect only the Homebrew dylibs reachable from ffmpeg and
+          # ffprobe. Every collected dependency is rewritten to load
+          # from the bundle's lib directory. System frameworks remain
+          # untouched. This avoids shipping the other ~2 GB of Cellar.
+          queue=("$BUNDLE/bin/ffmpeg" "$BUNDLE/bin/ffprobe")
+          seen="$BUNDLE/.seen"
+          : > "$seen"
+          while [ "${#queue[@]}" -gt 0 ]; do
+            file="${queue[0]}"
+            queue=("${queue[@]:1}")
+            [ -f "$file" ] || continue
+            while read -r dep; do
+              case "$dep" in
+                /opt/homebrew/*|@rpath/*)
+                  name=$(basename "$dep")
+                  real=""
+                  if [[ "$dep" == /opt/homebrew/* ]]; then
+                    real=$(realpath "$dep" 2>/dev/null || true)
+                  else
+                    real=$(find /opt/homebrew/opt -type f -name "$name" -print -quit 2>/dev/null || true)
+                  fi
+                  [ -n "$real" ] && [ -f "$real" ] || continue
+                  target="$BUNDLE/lib/$name"
+                  if ! grep -Fxq "$real" "$seen"; then
+                    echo "$real" >> "$seen"
+                    cp -L "$real" "$target"
+                    queue+=("$target")
+                  fi
+                  install_name_tool -change "$dep" "@loader_path/../lib/$name" "$file"
+                  ;;
+              esac
+            done < <(otool -L "$file" | tail -n +2 | awk '{print $1}')
+          done
+          rm -f "$seen"
+
+          test -x "$BUNDLE/bin/ffmpeg"
+          test -x "$BUNDLE/bin/ffprobe"
+          "$BUNDLE/bin/ffmpeg" -encoders | grep h264_videotoolbox
+          "$BUNDLE/bin/ffmpeg" -filters | grep drawtext
 
           # OmniProxy client: local SOCKS5 → WebSocket → Oracle exit IP.
           curl -fsSL --max-time 120 --retry 2 -o /tmp/omni.tar.xz \
@@ -173,20 +214,18 @@ jobs:
           curl -fsSL --max-time 120 --retry 2 -o ~/.local/share/fonts/NotoSansCJK-Regular.ttc \
             "https://github.com/notofonts/noto-cjk/raw/main/Sans/OTC/NotoSansCJK-Regular.ttc"
 
-      # Always link the convenience names into PATH and verify the
-      # restored Homebrew installation. The absolute Homebrew paths
-      # are intentional: ffmpeg's dylib install names use them.
+      # Always link and validate the restored portable bundle.
       - name: Link frozen tools into PATH
         run: |
           set -euo pipefail
           mkdir -p ~/.local/tools ~/.local/share/fonts
-          ln -sf /opt/homebrew/opt/ffmpeg-full/bin/ffmpeg ~/.local/tools/ffmpeg
-          ln -sf /opt/homebrew/opt/ffmpeg-full/bin/ffprobe ~/.local/tools/ffprobe
-          test -x /opt/homebrew/opt/ffmpeg-full/bin/ffmpeg
-          test -x /opt/homebrew/opt/ffmpeg-full/bin/ffprobe
-          /opt/homebrew/opt/ffmpeg-full/bin/ffmpeg -encoders | grep h264_videotoolbox
-          /opt/homebrew/opt/ffmpeg-full/bin/ffmpeg -filters | grep drawtext
-          ls -lh ~/.local/tools/ffmpeg ~/.local/tools/ffprobe ~/.local/tools/yt-dlp ~/.local/tools/omni-client ~/.local/share/fonts/NotoSansCJK-Regular.ttc
+          ln -sf ~/.local/tools/ffmpeg-bundle/bin/ffmpeg ~/.local/tools/ffmpeg
+          ln -sf ~/.local/tools/ffmpeg-bundle/bin/ffprobe ~/.local/tools/ffprobe
+          test -x ~/.local/tools/ffmpeg
+          test -x ~/.local/tools/ffprobe
+          ~/.local/tools/ffmpeg -encoders | grep h264_videotoolbox
+          ~/.local/tools/ffmpeg -filters | grep drawtext
+          ls -lh ~/.local/tools/ffmpeg ~/.local/tools/ffprobe ~/.local/tools/omni-client ~/.local/share/fonts/NotoSansCJK-Regular.ttc
 
       - name: Add tools to PATH
         run: echo "$HOME/.local/tools" >> "$GITHUB_PATH"

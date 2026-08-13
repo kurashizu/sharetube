@@ -23,15 +23,16 @@ on:
   workflow_dispatch:
     inputs:
       job_id:
-        description: "Job ID (manual re-runs only)"
-        required: false
+        description: "Job ID (must be a UUID; any value works for smoke tests)"
+        required: true
+        default: "00000000-0000-0000-0000-000000000000"
       url:
-        description: "Source URL (manual runs without job_id)"
-        required: false
+        description: "Source URL (manual runs)"
+        required: true
         default: "https://youtu.be/7yh64THGjCE"
       config_json:
         description: "Per-job config JSON (manual runs)"
-        required: false
+        required: true
         default: '{"max_resolution":"720p","output_resolution":"720p","video_bitrate":"600k","audio_bitrate":"128k","ttl_seconds":3600,"watermark_enabled":true,"watermark_line1":"sharetube.krsz.in","watermark_line2":"{title} · {resolution} · {duration}","watermark_font_size":28,"encoder_preset":"fast","use_cookies":true}'
 
 # Skip when the dispatch payload isn't aimed at the Mac runner. The

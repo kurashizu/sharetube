@@ -204,8 +204,18 @@ def _build_cmd(
     effective_resolution: str,
     use_watermark: bool,
     font: Optional[str],
-    use_vaapi: bool,
 ) -> list[str]:
+    """Compose the ffmpeg invocation.
+
+    The codec is picked from ``cfg.video_codec`` (platform auto-detect):
+      - macOS        → h264_videotoolbox
+      - Linux VAAPI  → h264_vaapi (when watermark is off — VT-style
+                       drawtext can't coexist with vaapi scaling)
+      - Else         → libx264
+
+    ``use_watermark`` always implies a CPU-side ``drawtext`` + ``scale``
+    filter chain, so the VAAPI branch only fires when watermark is off.
+    """
     cfg_kbps = _parse_bitrate(cfg.job_cfg.video_bitrate)
     if source_bitrate_kbps and source_bitrate_kbps > 0:
         vbr_kbps = min(cfg_kbps, source_bitrate_kbps)
@@ -215,6 +225,7 @@ def _build_cmd(
     maxrate_str = f"{max(vbr_kbps, int(vbr_kbps * 1.25))}k"
     bufsize_str = f"{max(vbr_kbps * 2, 4000)}k"
 
+    # Build the (optional) vf chain.
     if use_watermark:
         line1, line2 = _format_watermark(cfg, src)
         fs = cfg.job_cfg.watermark_font_size
@@ -241,11 +252,49 @@ def _build_cmd(
             h = effective_resolution.rstrip("p")
             vf_parts.append(f"scale=-2:{h}")
         vf = ",".join(vf_parts)
-        return [
+    else:
+        vf = None
+
+    codec = cfg.video_codec
+
+    # macOS: VideoToolbox hardware H.264. -realtime 1 asks the
+    # encoder for low-latency mode; -allow_sw 1 is a safety valve
+    # so VideoToolbox falls back to libx264 instead of erroring if
+    # it can't handle a given input. We drop -preset / -maxrate /
+    # -bufsize because VT doesn't honour them.
+    if codec == "h264_videotoolbox":
+        cmd = [
             cfg.ffmpeg_bin, "-hide_banner", "-y",
             "-i", str(src),
-            "-vf", vf,
-            "-c:v", "libx264", "-preset", cfg.encoder_preset,
+        ]
+        if vf:
+            cmd += ["-vf", vf]
+        cmd += [
+            "-c:v", "h264_videotoolbox",
+            "-b:v", effective_bitrate,
+            "-realtime", "1", "-allow_sw", "1",
+            "-c:a", "aac", "-b:a", cfg.job_cfg.audio_bitrate,
+            "-movflags", "+faststart",
+            "-progress", "pipe:1", "-nostats",
+            str(dst),
+        ]
+        return cmd
+
+    # Linux with VAAPI GPU (self-hosted box). drawtext can't run on
+    # GPU frames, so watermark forces the libx264 fallback below.
+    if codec == "h264_vaapi" and not use_watermark:
+        vf_parts = ["format=vaapi"]
+        if effective_resolution != "source":
+            h = effective_resolution.rstrip("p")
+            vf_parts.append(f"scale_vaapi=-2:{h}:mode=fast")
+        vaapi_vf = ",".join(vf_parts)
+        return [
+            cfg.ffmpeg_bin, "-hide_banner", "-y",
+            "-vaapi_device", cfg.vaapi_device,
+            "-hwaccel", "vaapi", "-hwaccel_output_format", "vaapi",
+            "-i", str(src),
+            "-vf", vaapi_vf,
+            "-c:v", "h264_vaapi", "-rc_mode", "VBR",
             "-b:v", effective_bitrate,
             "-maxrate", maxrate_str, "-bufsize", bufsize_str,
             "-c:a", "aac", "-b:a", cfg.job_cfg.audio_bitrate,
@@ -254,42 +303,10 @@ def _build_cmd(
             str(dst),
         ]
 
-    if use_vaapi:
-        vf_parts = ["format=vaapi"]
-        if effective_resolution != "source":
-            h = effective_resolution.rstrip("p")
-            vf_parts.append(f"scale_vaapi=-2:{h}:mode=fast")
-        vf = ",".join(vf_parts)
-        return [
-            cfg.ffmpeg_bin,
-            "-hide_banner", "-y",
-            "-vaapi_device", cfg.vaapi_device,
-            "-hwaccel", "vaapi",
-            "-hwaccel_output_format", "vaapi",
-            "-i", str(src),
-            "-vf", vf,
-            "-c:v", "h264_vaapi",
-            "-rc_mode", "VBR",
-            "-b:v", effective_bitrate,
-            "-maxrate", maxrate_str,
-            "-bufsize", bufsize_str,
-            "-c:a", "aac",
-            "-b:a", cfg.job_cfg.audio_bitrate,
-            "-movflags", "+faststart",
-            "-progress", "pipe:1",
-            "-nostats",
-            str(dst),
-        ]
-
-    # CPU software path (default on GH runners).
-    vf_parts = []
-    if effective_resolution != "source":
-        h = effective_resolution.rstrip("p")
-        vf_parts.append(f"scale=-2:{h}")
-    vf = ",".join(vf_parts) if vf_parts else None
+    # Software libx264 (default on GH Linux runner; also fallback for
+    # VAAPI box when watermark is on).
     cmd = [
-        cfg.ffmpeg_bin,
-        "-hide_banner", "-y",
+        cfg.ffmpeg_bin, "-hide_banner", "-y",
         "-i", str(src),
     ]
     if vf:
@@ -304,7 +321,6 @@ def _build_cmd(
         str(dst),
     ]
     return cmd
-
 
 def transcode(
     src: Path,

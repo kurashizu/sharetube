@@ -8,7 +8,9 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 from dataclasses import dataclass
+from pathlib import Path
 
 
 def _require(name: str) -> str:
@@ -106,6 +108,26 @@ class Config:
     ffmpeg_bin: str
     ytdlp_bin: str
     proxy_url: str | None = None  # e.g. "socks5://user:pass@host:1080"
+
+    @property
+    def video_codec(self) -> str:
+        """Auto-select the H.264 encoder for the runner host.
+
+        - macOS (Apple Silicon GitHub runner) → ``h264_videotoolbox``
+          for hardware encoding via VideoToolbox.
+        - Linux + VAAPI device present → ``h264_vaapi`` (self-hosted
+          GPU box).
+        - Else → ``libx264`` software (GH Linux runner, no GPU).
+
+        The choice is platform-only; ``JobConfig`` doesn't carry a
+        codec field because the runner is what knows its hardware,
+        not the client.
+        """
+        if sys.platform == "darwin":
+            return "h264_videotoolbox"
+        if Path(DEFAULT_VAAPI_DEVICE).exists():
+            return "h264_vaapi"
+        return "libx264"
 
     @classmethod
     def from_env(cls) -> "Config":

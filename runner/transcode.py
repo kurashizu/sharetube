@@ -159,6 +159,12 @@ def _escape_drawtext(text: str) -> str:
     text = text.replace("\n", "\\n")
     text = text.replace(":", "\\:")
     text = text.replace("%", "%%")
+    # drawtext wraps the text in single quotes: text='...'. A literal
+    # `'` in the title (e.g. "Feel Like Makin' Love") would otherwise
+    # terminate the value early and produce a malformed filter graph
+    # that ffmpeg rejects with a non-zero exit code (observed: 234).
+    # In drawtext's expression language `\'` represents a single quote.
+    text = text.replace("'", "\\'")
     return text
 
 

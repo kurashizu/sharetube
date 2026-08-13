@@ -17,8 +17,8 @@ export const POST: RequestHandler = async ({ request, platform, params }) => {
 
   let direction: string;
   try {
-    const body = await request.json();
-    direction = body?.direction;
+    const body = (await request.json()) as { direction?: unknown };
+    direction = typeof body?.direction === 'string' ? body.direction : '';
   } catch {
     direction = '';
   }

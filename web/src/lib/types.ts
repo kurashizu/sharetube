@@ -22,10 +22,9 @@ export interface JobConfig {
    *  larger file; slower presets = longer encode, smaller file.
    *  (Ignored on macOS — h264_videotoolbox has no preset.) */
   encoder_preset: string;
-  /** Runner target: 'linux' (libx264, default) or 'mac'
-   *  (h264_videotoolbox hardware H.264). Mac is free on public
-   *  repos but the GitHub-hosted runners are a 2x minute multiplier,
-   *  so the user opts in. */
+  /** Runner target: 'mac' (VideoToolbox, default) or 'linux'
+   *  (libx264 software fallback). Mac is the recommended default;
+   *  Linux remains available for users who prefer it. */
   runner: 'linux' | 'mac';
   /** Proxy route for download traffic. */
   proxy_mode: 'oracle-australia' | 'cloudflare-warp' | 'disabled';
@@ -125,9 +124,9 @@ export interface UserSettings {
    *  a safe subset (see runner/config.py X264_PRESETS). Ignored when
    *  ``runner === 'mac'`` — VideoToolbox has no preset concept. */
   encoder_preset: string;
-  /** Runner target. 'linux' = default ubuntu runner with libx264.
-   *  'mac' = macos-26 runner with h264_videotoolbox (faster, ~3x,
-   *  but consumes more GH quota). Persisted in localStorage. */
+  /** Runner target. 'mac' = macos-26 runner with h264_videotoolbox
+   *  (default, faster); 'linux' = ubuntu runner with libx264.
+   *  Persisted in localStorage. */
   runner: 'linux' | 'mac';
   /** Proxy route for download traffic. */
   proxy_mode: 'oracle-australia' | 'cloudflare-warp' | 'disabled';

@@ -36,7 +36,7 @@
           audio_bitrate: cfg.audio_bitrate,
           ttl_seconds: cfg.ttl_seconds,
           // Watermark and cookies are always on (branding + bot wall);
-          // the proxy route follows the user's Network setting.
+          // runner and proxy route follow the user's settings.
           watermark_enabled: true,
           watermark_line1: 'sharetube.krsz.in',
           watermark_line2: '{title} · {resolution} · {duration}',

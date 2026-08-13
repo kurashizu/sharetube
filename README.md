@@ -164,15 +164,14 @@ In **Settings → Secrets and variables → Actions**:
 | Kind     | Name              | Value                                                                                  |
 |----------|-------------------|----------------------------------------------------------------------------------------|
 | Secret   | `INTERNAL_TOKEN`  | same value as Worker's `INTERNAL_TOKEN`                                                |
-| Secret   | `COOKIES_PASS`    | passphrase used to encrypt `secrets/cookies.txt.enc`                                   |
-| Secret   | `PROXY_TOKEN`     | OmniProxy tunnel token (for the Oracle exit-IP tunnel)                                 |
+| Secret   | `COOKIES_PASS`    | passphrase used to encrypt cookies and the WARP account                              |
+| Secret   | `PROXY_TOKEN`     | OmniProxy token for the optional Oracle Australia tunnel                              |
 | Variable | `WORKER_URL`      | `https://sharetube.<your-account-subdomain>.workers.dev`                               |
 | Variable | `OMNIPROXY_SERVER`| e.g. `op-au.022025.xyz` (wss, port 443)                                                |
 | Variable | `DENO_VER`        | pinned deno release tag, e.g. `v2.9.4`                                                 |
 
-`OMNIPROXY_SERVER` / `PROXY_TOKEN` / `DENO_VER` are optional — without
-them the runner still works but YouTube bot-wall protection may block
-some videos (cookies are bound to the exit IP).
+`OMNIPROXY_SERVER` / `PROXY_TOKEN` / `DENO_VER` are optional when using
+WARP or Disabled. They are required for the Oracle Australia proxy mode.
 
 ### 5. Set the GitHub repo name in wrangler.jsonc
 
@@ -187,20 +186,18 @@ npm run build              # builds .svelte-kit/cloudflare/_worker.js
 npx wrangler deploy        # or: npm run deploy
 ```
 
-## Cookies & the tunnel
+## Cookies & proxy tunnels
 
 YouTube trips a bot wall ("Sign in to confirm you're not a bot") on
-some videos. Two things make downloads work from CI:
+some videos. The encrypted cookies are decrypted at job time with
+`COOKIES_PASS` and wiped during cleanup.
 
-1. **Encrypted cookies** — `secrets/cookies.txt.enc` is committed,
-   decrypted at job time with `COOKIES_PASS` into a temp file, and
-   **wiped in the cleanup step**. Cookies are **always** sent to
-   yt-dlp (there is no `use_cookies` toggle anymore).
-2. **OmniProxy tunnel** — the runner starts a local SOCKS5 client
-   (`127.0.0.1:1080`) that tunnels over WebSocket to the Oracle server
-   (`op-au.022025.xyz`), so yt-dlp exits from the Oracle IP — where the
-   cookies were minted — instead of Azure. This defeats the bot wall
-   and keeps cookies valid.
+New jobs default to the **macOS VideoToolbox runner**,
+**Cloudflare WARP**, and a **1-day share TTL**, using the encrypted
+`secrets/wgcf-account.toml.enc` profile and a full WireGuard tunnel.
+**Oracle Australia** starts the local OmniProxy SOCKS5 tunnel instead;
+**Disabled** uses the runner's normal network. Cookies are never printed
+or uploaded.
 
 ```bash
 # Export Netscape-format cookies from a logged-in browser
@@ -253,10 +250,16 @@ Two separate caches, so setup stays fast:
 
 All downloads carry `--max-time` / `--retry` so a slow mirror fails
 fast instead of hanging the whole run. The Settings modal offers three
-proxy modes: Oracle Australia (default), Cloudflare WARP, and Disabled.
+proxy modes: Cloudflare WARP (default), Oracle Australia, and Disabled.
 The WARP account is stored encrypted in `secrets/wgcf-account.toml.enc`
 using the same `COOKIES_PASS` secret; plaintext account files are never
 committed.
+
+## Defaults
+
+New jobs default to the macOS VideoToolbox runner, Cloudflare WARP, and a
+1-day share TTL. Linux, Oracle Australia, and other TTL values remain
+available in Settings.
 
 ## Manual re-run
 

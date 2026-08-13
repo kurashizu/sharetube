@@ -4,8 +4,8 @@ name: sharetube-mac
 # instead of libx264. Triggered by the same `repository_dispatch`
 # `sharetube-job` event as sharetube.yml, but ONLY when
 # `client_payload.runner == 'mac'` — the Worker picks the runner
-# target based on the user's setting. Default (no `runner` field,
-# or `runner == 'linux'`) goes to the Linux workflow instead.
+# target based on the user's setting. macOS is the frontend default;
+# Linux remains available as an opt-out.
 #
 # Also accepts workflow_dispatch so this can be exercised manually
 # for end-to-end testing without going through the Worker.
@@ -32,10 +32,10 @@ on:
       config_json:
         description: "Per-job config JSON (manual runs)"
         required: true
-        default: '{"max_resolution":"720p","output_resolution":"720p","video_bitrate":"600k","audio_bitrate":"128k","ttl_seconds":3600,"watermark_enabled":true,"watermark_line1":"sharetube.krsz.in","watermark_line2":"{title} · {resolution} · {duration}","watermark_font_size":28,"encoder_preset":"fast","use_cookies":true}'
+        default: '{"max_resolution":"720p","output_resolution":"720p","video_bitrate":"600k","audio_bitrate":"128k","ttl_seconds":86400,"watermark_enabled":true,"watermark_line1":"sharetube.krsz.in","watermark_line2":"{title} · {resolution} · {duration}","watermark_font_size":28,"encoder_preset":"fast","use_cookies":true,"runner":"mac","proxy_mode":"cloudflare-warp"}'
 
 # Skip when the dispatch payload isn't aimed at the Mac runner. The
-# default (no `runner` key) and `runner == 'linux'` go to sharetube.yml.
+# `runner == 'linux'` goes to sharetube.yml.
 concurrency:
   group: sharetube-mac-${{ github.event.client_payload.job_id || inputs.job_id }}
   cancel-in-progress: false
@@ -43,8 +43,8 @@ concurrency:
 jobs:
   run:
     # Mac worker. Fires when dispatched with `runner: mac`, or via
-    # workflow_dispatch (manual smoke tests). Default Linux jobs go
-    # to sharetube.yml instead.
+    # workflow_dispatch (manual smoke tests). Linux jobs go to
+    # sharetube.yml instead.
     if: github.event_name == 'workflow_dispatch' || github.event.client_payload.runner == 'mac'
     runs-on: macos-26
     timeout-minutes: 30
@@ -104,9 +104,10 @@ jobs:
             ~/.local/tools/wg
             ~/.local/tools/wg-quick
             ~/.local/tools/wireguard-go
+            ~/.local/tools/wg-quick-macos.sh
             ~/.local/tools/omni-client
             ~/.local/share/fonts
-          key: macos26-fixed-deno${{ vars.DENO_VER }}-omni-${{ vars.OMNIPROXY_VER }}-ffmpeg-arm64-8.1-warp-v2.2.32-wgbottle-1
+          key: macos26-fixed-deno${{ vars.DENO_VER }}-omni-${{ vars.OMNIPROXY_VER }}-ffmpeg-arm64-8.1-warp-v2.2.32-wgbottle-v2-1
 
       - name: Install yt-dlp
         run: |
@@ -171,7 +172,7 @@ jobs:
           fi
 
           # WireGuard tools: extract prebuilt arm64 binaries from
-          # Homebrew's public bottle registry. No package manager or build.
+          # the public registry. No package manager or build.
           WG_TOKEN=$(curl -fsSL --max-time 30 \
             "https://ghcr.io/token?scope=repository:homebrew/core/wireguard-tools:pull" \
             | python3 -c 'import json,sys; print(json.load(sys.stdin)["token"])')
@@ -183,6 +184,7 @@ jobs:
           tar xzf /tmp/wireguard-tools.bottle.tar.gz -C /tmp
           install -m 755 /tmp/wireguard-tools/1.0.20260223/bin/wg ~/.local/tools/wg
           install -m 755 /tmp/wireguard-tools/1.0.20260223/bin/wg-quick ~/.local/tools/wg-quick
+          install -m 755 runner/wg-quick-macos.sh ~/.local/tools/wg-quick-macos.sh
           rm -rf /tmp/wireguard-tools /tmp/wireguard-tools.bottle.tar.gz
 
           WGGO_TOKEN=$(curl -fsSL --max-time 30 \
@@ -226,31 +228,6 @@ jobs:
       - name: Add tools to PATH
         run: echo "$HOME/.local/tools" >> "$GITHUB_PATH"
 
-      # yt-dlp[default] provides the EJS challenge solver scripts that the
-      # standalone zipapp imports on demand. The set of packages and
-      # their pinned versions change rarely, so we cache the user-site
-      # and only reinstall if the marker is stale.
-      - name: Cache yt-dlp Python deps
-        id: pypkgs
-        uses: actions/cache@v6
-        with:
-          path: |
-            ~/.local/lib/python3.13/site-packages/yt_dlp
-            ~/.local/lib/python3.13/site-packages/yt_dlp-*.dist-info
-            ~/.local/lib/python3.13/site-packages/brotli
-            ~/.local/lib/python3.13/site-packages/brotlicffi
-            ~/.local/lib/python3.13/site-packages/certifi
-            ~/.local/lib/python3.13/site-packages/mutagen
-            ~/.local/lib/python3.13/site-packages/pycryptodomex
-            ~/.local/lib/python3.13/site-packages/requests
-            ~/.local/lib/python3.13/site-packages/urllib3
-            ~/.local/lib/python3.13/site-packages/websockets
-          key: macos26-yt-dlp-pydeps-1
-
-      - name: Install yt-dlp Python deps
-        if: steps.pypkgs.outputs.cache-hit != 'true'
-        run: python3 -m pip install --user --break-system-packages --quiet 'yt-dlp[default]'
-
       # ── Cookies decryption ─────────────────────────────────────────
 
       - name: Decrypt cookies.txt
@@ -287,10 +264,10 @@ jobs:
           JOB_CONFIG_JSON: ${{ github.event.client_payload.config || inputs.config_json }}
         run: |
           set -euo pipefail
-          PROXY_MODE=$(python3 -c 'import json,os; d=json.loads(os.environ.get("JOB_CONFIG_JSON") or "{}"); m=d.get("proxy_mode"); print(m if m in {"oracle-australia","cloudflare-warp","disabled"} else ("oracle-australia" if d.get("use_proxy", True) else "disabled"))')
+          PROXY_MODE=$(python3 -c 'import json,os; d=json.loads(os.environ.get("JOB_CONFIG_JSON") or "{}"); m=d.get("proxy_mode"); print(m if m in {"oracle-australia","cloudflare-warp","disabled"} else (("oracle-australia" if d["use_proxy"] else "disabled") if "use_proxy" in d else "cloudflare-warp"))')
           if [ "$PROXY_MODE" = "cloudflare-warp" ]; then
-            command -v wg-quick >/dev/null || { echo "::error::wireguard-tools missing"; exit 1; }
-            command -v wg >/dev/null || { echo "::error::wg missing"; exit 1; }
+            [ -x ~/.local/tools/wg-quick-macos.sh ] || { echo "::error::macOS wg-quick helper missing"; exit 1; }
+            [ -x ~/.local/tools/wg ] || { echo "::error::wg missing"; exit 1; }
             [ -x ~/.local/tools/wireguard-go ] || { echo "::error::wireguard-go missing"; exit 1; }
             [ -f secrets/wgcf-account.toml.enc ] || { echo "::error::encrypted WARP account missing"; exit 1; }
             export WG_QUICK_USERSPACE_IMPLEMENTATION="$HOME/.local/tools/wireguard-go"
@@ -303,8 +280,9 @@ jobs:
               --config "$RUNNER_TEMP/sharetube-warp/wgcf-account.toml" \
               --profile "$RUNNER_TEMP/sharetube-warp/wgcf.conf"
             sudo env "PATH=$HOME/.local/tools:$PATH" \
+              "WG_BIN=$HOME/.local/tools/wg" \
               "WG_QUICK_USERSPACE_IMPLEMENTATION=$HOME/.local/tools/wireguard-go" \
-              wg-quick up "$RUNNER_TEMP/sharetube-warp/wgcf.conf"
+              "$HOME/.local/tools/wg-quick-macos.sh" up "$RUNNER_TEMP/sharetube-warp/wgcf.conf"
             if WARP_IP=$(curl -fsSL --max-time 20 https://api.ipify.org); then
               echo "Cloudflare WARP tunnel up, exit IP: $WARP_IP"
             else
@@ -357,8 +335,8 @@ jobs:
           # and its progress updates land in the backend instead of
           # being silently dropped as 404s. We also stamp
           # runner=mac into the config so the Worker's dispatch
-          # payload carries the right tag — otherwise sharetube.yml
-          # sees no runner field, defaults to linux, and races us.
+          # payload carries the right tag — otherwise the dispatch
+          # cannot select the macOS workflow.
           STAMPED=$(python3 -c "
           import json, sys
           cfg = json.loads('''${CONFIG_JSON}''')
@@ -394,7 +372,10 @@ jobs:
         if: always()
         run: |
           if [ -f "${RUNNER_TEMP:-/tmp}/sharetube-warp/wgcf.conf" ]; then
-            sudo env "PATH=$HOME/.local/tools:$PATH" WG_QUICK_USERSPACE_IMPLEMENTATION="$HOME/.local/tools/wireguard-go" wg-quick down "${RUNNER_TEMP:-/tmp}/sharetube-warp/wgcf.conf" || true
+            sudo env "PATH=$HOME/.local/tools:$PATH" \
+              WG_BIN="$HOME/.local/tools/wg" \
+              WG_QUICK_USERSPACE_IMPLEMENTATION="$HOME/.local/tools/wireguard-go" \
+              "$HOME/.local/tools/wg-quick-macos.sh" down "${RUNNER_TEMP:-/tmp}/sharetube-warp/wgcf.conf" || true
           fi
           pkill -f 'omni-client' || true
           pkill -f 'wireguard-go' || true

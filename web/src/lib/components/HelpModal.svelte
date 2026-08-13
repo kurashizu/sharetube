@@ -73,7 +73,7 @@
             <li><b>Output resolution</b> — what your share file is encoded at. Choose 2160p to keep the source size.</li>
             <li><b>Video bitrate</b> — lower = smaller file, lower quality. 600k is a good trade-off at 720p.</li>
             <li><b>Audio bitrate</b> — usually 128k is enough.</li>
-            <li><b>Proxy</b> — Oracle Australia is enabled by default. Cloudflare WARP routes the runner through Cloudflare; Disabled uses the runner's normal network.</li>
+            <li><b>Proxy</b> — Cloudflare WARP is enabled by default. Oracle Australia uses the secure SOCKS5 tunnel; Disabled uses the runner's normal network.</li>
             <li><b>x264 encoder preset</b> — slower presets produce smaller files but take longer to encode.</li>
             <li><b>TTL</b> — how long the share link stays valid. The history row is deleted at the same moment.</li>
           </ul>
@@ -86,7 +86,7 @@
 
         <section class="help-section">
           <h3>Privacy</h3>
-          <p>By default, the runner exits through a fixed Oracle Australia IP via a SOCKS5 tunnel. You can choose Cloudflare WARP or disable the proxy in Settings. Cookies are never exposed to the public Cloudflare Worker.</p>
+          <p>By default, the runner exits through Cloudflare WARP. You can choose the Oracle Australia SOCKS5 tunnel or disable the proxy in Settings. Cookies are never exposed to the public Cloudflare Worker.</p>
         </section>
 
         <section class="help-section">

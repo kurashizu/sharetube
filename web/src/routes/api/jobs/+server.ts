@@ -136,6 +136,7 @@ export const GET: RequestHandler = async ({ platform }) => {
     title: string | null;
     dispatched: number;
     cancelled: number;
+    phase_meta_json: string;
     created_at: number;
     updated_at: number;
   }>();

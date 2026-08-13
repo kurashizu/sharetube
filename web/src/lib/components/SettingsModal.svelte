@@ -94,12 +94,12 @@
             <label class="field-label" for="cfg-proxy-mode">Proxy</label>
             <div class="select-wrap">
               <select id="cfg-proxy-mode" class="field-select" bind:value={draft.proxy_mode}>
-                <option value="oracle-australia">Oracle Australia (default)</option>
+                <option value="oracle-australia">Oracle Australia</option>
                 <option value="cloudflare-warp">Cloudflare WARP</option>
                 <option value="disabled">Disabled</option>
               </select>
             </div>
-            <div class="field-hint">Oracle Australia is enabled by default to avoid datacenter IP restrictions. Cloudflare WARP routes the whole runner through Cloudflare.</div>
+            <div class="field-hint">Cloudflare WARP is enabled by default and routes the whole runner through Cloudflare. Oracle Australia uses the secure SOCKS5 tunnel.</div>
           </div>
         </div>
 
@@ -144,8 +144,8 @@
             <label class="field-label" for="cfg-runner">Runner</label>
             <div class="select-wrap">
               <select id="cfg-runner" class="field-select" bind:value={draft.runner}>
-                <option value="linux">Linux (libx264, default)</option>
-                <option value="mac">macOS — Apple Silicon (VideoToolbox, faster)</option>
+                <option value="linux">Linux (libx264)</option>
+                <option value="mac">macOS — Apple Silicon (VideoToolbox, default)</option>
               </select>
             </div>
             <div class="field-hint">macOS uses VideoToolbox hardware H.264 encoding — roughly 3× faster on the same video, but consumes more GitHub Actions quota.</div>

@@ -20,8 +20,8 @@ concurrency:
 
 jobs:
   run:
-    # Linux worker. Only run on `runner: linux` (default). Mac jobs go
-    # to sharetube-mac.yml instead. The Worker dispatch payload always
+    # Linux worker. Only run on `runner: linux`. macOS is the frontend
+    # default; Linux remains available as an opt-out. The Worker dispatch payload always
     # carries a `runner` field; old dispatches without it are skipped
     # (none in practice — Worker has been updated alongside this guard).
     if: github.event.client_payload.runner == 'linux'
@@ -238,7 +238,7 @@ jobs:
           JOB_CONFIG_JSON: ${{ github.event.client_payload.config || inputs.config_json }}
         run: |
           set -euo pipefail
-          PROXY_MODE=$(python3 -c 'import json,os; d=json.loads(os.environ.get("JOB_CONFIG_JSON") or "{}"); m=d.get("proxy_mode"); print(m if m in {"oracle-australia","cloudflare-warp","disabled"} else ("oracle-australia" if d.get("use_proxy", True) else "disabled"))')
+          PROXY_MODE=$(python3 -c 'import json,os; d=json.loads(os.environ.get("JOB_CONFIG_JSON") or "{}"); m=d.get("proxy_mode"); print(m if m in {"oracle-australia","cloudflare-warp","disabled"} else (("oracle-australia" if d["use_proxy"] else "disabled") if "use_proxy" in d else "cloudflare-warp"))')
           if [ "$PROXY_MODE" = "cloudflare-warp" ]; then
             command -v wg-quick >/dev/null || { echo "::error::wireguard-tools missing"; exit 1; }
             command -v wg >/dev/null || { echo "::error::wg missing"; exit 1; }

@@ -17,7 +17,8 @@ Expected environment:
     YTDLP_BIN         yt-dlp (PATH lookup)
 
   The per-job `proxy_mode` setting is applied by the GitHub Actions workflow;
-  the runner receives `PROXY_URL` only when the Oracle tunnel is active.
+  the runner receives `PROXY_URL` when the Oracle tunnel is active. WARP
+  routes the runner network before this process starts.
 """
 from __future__ import annotations
 

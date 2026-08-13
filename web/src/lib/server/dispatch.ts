@@ -49,7 +49,7 @@ async function ghDispatch(
   jobId: string,
   url: string,
   configJson: string,
-  runner: 'linux' | 'mac' = 'linux'
+  runner: 'linux' | 'mac' = 'mac'
 ): Promise<boolean> {
   const repo = env.GH_REPO ?? 'kurashizu/sharetube';
   const token = env.GH_DISPATCH_TOKEN;
@@ -192,14 +192,15 @@ export async function dispatchPending(env: Env): Promise<number> {  // In-flight
         WHERE id = ? AND status = 'pending' AND dispatched = 0`
     ).bind(Math.floor(Date.now() / 1000), job.id).run();
     if ((claim.meta?.changes ?? 0) === 0) continue;
-    // Read runner target from the per-job config; fall back to linux
-    // if absent (older jobs predating the toggle).
-    let runner: 'linux' | 'mac' = 'linux';
+    // Read runner target from the per-job config; fall back to mac
+    // for older jobs now that macOS is the frontend default.
+    let runner: 'linux' | 'mac' = 'mac';
     try {
       const cfg = JSON.parse(job.config_json || '{}');
-      if (cfg.runner === 'mac') runner = 'mac';
+      if (cfg.runner === 'linux') runner = 'linux';
+      else if (cfg.runner === 'mac') runner = 'mac';
     } catch {
-      // malformed config_json — keep default linux
+      // malformed config_json — keep default mac
     }
     const ok = await ghDispatch(env, job.id, job.url, job.config_json, runner);
     if (ok) {

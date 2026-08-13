@@ -7,7 +7,8 @@
 
 import type { UserSettings } from '../types';
 
-const STORAGE_KEY = 'sharetube:settings:v1';
+const STORAGE_KEY = 'sharetube:settings:v2';
+const LEGACY_STORAGE_KEY = 'sharetube:settings:v1';
 
 export const RESOLUTION_OPTIONS = ['480p', '720p', '1080p', '1440p', '2160p'];
 // libx264 -preset values, fastest → slowest. The runner whitelists
@@ -37,7 +38,7 @@ export const DEFAULT_SETTINGS: UserSettings = {
   output_resolution: '720p',
   video_bitrate: '600k',
   audio_bitrate: '128k',
-  ttl_seconds: 6 * 60 * 60,
+  ttl_seconds: 24 * 60 * 60,
   // Watermark is always applied (branding); not a user choice.
   watermark_enabled: true,
   watermark_line1: 'sharetube.krsz.in',
@@ -46,26 +47,35 @@ export const DEFAULT_SETTINGS: UserSettings = {
   // libx264 preset; same default as runner/config.py. Fast gives a
   // good speed/size trade-off for typical downloads.
   encoder_preset: 'fast',
-  // Default to the Linux runner — cheaper, proven path. Mac is opt-in
-  // for users who want the ~3x hardware-encode speedup; the toggle
-  // lives in the Settings modal.
-  runner: 'linux',
+  // macOS uses VideoToolbox hardware encoding and is the default runner.
+  runner: 'mac',
   // Cookies are always used (bot wall). The option is no longer
   // exposed in the UI; kept in the type only for stored settings
   // from older clients.
   use_cookies: true,
-  // Oracle Australia avoids datacenter IP bot walls. Cloudflare WARP
-  // uses the encrypted account profile and a full WireGuard tunnel.
-  proxy_mode: 'oracle-australia'
+  // Cloudflare WARP is the default full-runner tunnel.
+  proxy_mode: 'cloudflare-warp'
 };
 
 /** Read a stored setting, falling back to default. */
 function readStored(): UserSettings {
   if (typeof localStorage === 'undefined') return { ...DEFAULT_SETTINGS };
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const current = localStorage.getItem(STORAGE_KEY);
+    const raw = current ?? localStorage.getItem(LEGACY_STORAGE_KEY);
     if (!raw) return { ...DEFAULT_SETTINGS };
     const parsed = JSON.parse(raw) as Partial<UserSettings>;
+    // Existing v1 settings predate the new defaults; migrate them to the
+    // current defaults while preserving all other user preferences.
+    if (!current) {
+      return {
+        ...DEFAULT_SETTINGS,
+        ...parsed,
+        ttl_seconds: DEFAULT_SETTINGS.ttl_seconds,
+        runner: DEFAULT_SETTINGS.runner,
+        proxy_mode: DEFAULT_SETTINGS.proxy_mode
+      };
+    }
     return { ...DEFAULT_SETTINGS, ...parsed };
   } catch {
     return { ...DEFAULT_SETTINGS };

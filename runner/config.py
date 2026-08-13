@@ -26,12 +26,13 @@ def _opt(name: str, default: str) -> str:
 
 
 # Defaults mirrored from web/src/lib/stores/config.svelte.ts so a
-# dispatch without those fields still has a sensible value.
+# dispatch without those fields still has a sensible value. The workflow
+# supplies the selected runner; these are only compatibility fallbacks.
 DEFAULT_VIDEO_BITRATE = "600k"
 DEFAULT_AUDIO_BITRATE = "128k"
 DEFAULT_VAAPI_DEVICE = "/dev/dri/renderD128"
 DEFAULT_ENCODER_PRESET = "fast"
-DEFAULT_TTL_SECONDS = 6 * 60 * 60
+DEFAULT_TTL_SECONDS = 24 * 60 * 60
 
 
 @dataclass(frozen=True)
@@ -49,7 +50,7 @@ class JobConfig:
     use_cookies: bool = True
     # Proxy route selected by the user. The workflow implements Oracle
     # Australia and Cloudflare WARP; disabled uses the normal network.
-    proxy_mode: str = "oracle-australia"
+    proxy_mode: str = "cloudflare-warp"
 
     # x264 presets exposed to the UI. Anything outside this whitelist
     # would either error out at ffmpeg or burn hours of runner time

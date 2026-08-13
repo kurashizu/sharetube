@@ -70,9 +70,17 @@ jobs:
 
       - name: Resolve yt-dlp version
         id: yt
+        env:
+          # GH unauthenticated API is rate-limited to 60 req/h/IP and the
+          # public Actions runners share IPs across many users — we've
+          # already hit 403s. The auto-provided GITHUB_TOKEN bumps the
+          # limit to 1000/h per repo, which is plenty.
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          YT_DLP_VER=$(curl -fsSL https://api.github.com/repos/yt-dlp/yt-dlp/releases/latest \
+          YT_DLP_VER=$(curl -fsSL \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            https://api.github.com/repos/yt-dlp/yt-dlp/releases/latest \
             | python3 -c "import json,sys;print(json.load(sys.stdin)['tag_name'])")
           echo "v=${YT_DLP_VER}" >> "$GITHUB_OUTPUT"
 

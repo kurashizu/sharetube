@@ -63,7 +63,7 @@ jobs:
 
       - name: Install deno (brew)
         run: brew install deno
-      - name: Cache frozen tools (ffmpeg, yt-dlp, omni-client, fonts)
+      - name: Cache frozen tools (ffmpeg, yt-dlp, omni-client, fonts, brew bottles)
         id: fixed
         uses: actions/cache@v6
         with:
@@ -73,9 +73,16 @@ jobs:
             ~/.local/tools/yt-dlp
             ~/.local/tools/omni-client
             ~/.local/share/fonts
-          key: macos26-tools-denov${{ vars.DENO_VER }}-omni-${{ vars.OMNIPROXY_VER }}-ffmpeg-brew-1
+            ~/Library/Caches/Homebrew
+          key: macos26-tools-denov${{ vars.DENO_VER }}-omni-${{ vars.OMNIPROXY_VER }}-ffmpeg-brew-2
 
       - name: Install frozen tools
+        env:
+          # Skip brew's tap auto-update + analytics. We don't need
+          # fresh formula info; the bottled ffmpeg-full we ship is the
+          # same one Homebrew ships today. Saves ~2–4 s on cold too.
+          HOMEBREW_NO_AUTO_UPDATE: '1'
+          HOMEBREW_NO_ANALYTICS: '1'
         run: |
           set -euo pipefail
           mkdir -p ~/.local/tools ~/.local/share/fonts

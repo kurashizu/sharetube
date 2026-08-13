@@ -10,6 +10,7 @@ import json
 import re
 import shutil
 import subprocess
+import sys
 import threading
 from dataclasses import dataclass
 from pathlib import Path
@@ -463,6 +464,16 @@ def transcode(
     rc = proc.wait(timeout=3600)
     t.join(timeout=5)
     if rc != 0:
+        # The stderr drain runs on a daemon thread that flushes to
+        # backend.log asynchronously — on fast ffmpeg failures that
+        # buffer might never reach D1. Dump the captured stderr here so
+        # the runner's own stdout (visible in the GH Actions log) shows
+        # exactly what ffmpeg complained about before we raise.
+        if stderr_buf:
+            sys.stderr.write(
+                "[ffmpeg-stderr-dump]\n" + "\n".join(stderr_buf) + "\n"
+            )
+            sys.stderr.flush()
         raise RuntimeError(f"ffmpeg exited with code {rc}")
     if not dst.exists() or dst.stat().st_size == 0:
         raise RuntimeError("ffmpeg produced no output file")

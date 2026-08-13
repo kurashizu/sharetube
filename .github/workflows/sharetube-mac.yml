@@ -181,7 +181,7 @@ jobs:
                   if [[ "$dep" == /opt/homebrew/* ]]; then
                     real=$(realpath "$dep" 2>/dev/null || true)
                   else
-                    real=$(find /opt/homebrew/opt \( -type f -o -type l \) -name "$name" -print -quit 2>/dev/null || true)
+                    real=$(find -L /opt/homebrew/opt \( -type f -o -type l \) -name "$name" -print -quit 2>/dev/null || true)
                   fi
                   [ -n "$real" ] && [ -f "$real" ] || continue
                   target="$BUNDLE/lib/$name"

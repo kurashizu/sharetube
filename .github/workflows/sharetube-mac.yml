@@ -193,6 +193,21 @@ jobs:
           print('video_codec:', cfg.video_codec)
           "
 
+      - name: Direct ffmpeg VideoToolbox smoke
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          set -euo pipefail
+          ffmpeg -y -hide_banner \
+            -f lavfi -i "testsrc2=duration=10:size=1280x720:rate=30" \
+            -f lavfi -i "sine=frequency=440:duration=10" \
+            -vf "drawtext=fontfile='$HOME/.local/share/fonts/NotoSansCJK-Regular.ttc':text='VT %{pts\\:hms}':fontsize=24:fontcolor=white:x=10:y=10:box=1:boxcolor=black@0.5:boxborderw=4" \
+            -c:v h264_videotoolbox -b:v 600k -realtime 1 -allow_sw 1 \
+            -c:a aac -b:a 128k \
+            /tmp/vt_test.mp4 2>&1
+          echo "EXIT_CODE=$?"
+          ls -lh /tmp/vt_test.mp4
+          ffprobe -v error -show_streams /tmp/vt_test.mp4 2>&1 | head -10
+
       - name: Resolve job id (workflow_dispatch only)
         if: github.event_name == 'workflow_dispatch'
         env:

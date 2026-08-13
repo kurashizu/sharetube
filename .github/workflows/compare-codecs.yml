@@ -1,0 +1,148 @@
+name: compare-codecs
+
+# Side-by-side encode comparison: libx264 on ubuntu-latest vs
+# h264_videotoolbox on macos-14 (Apple Silicon). Both jobs run in
+# parallel on the SAME source URL with the SAME output settings, so
+# the only variable is the encoder.
+#
+# Manual trigger: gh workflow run compare-codecs.yml
+# Watch:           gh run watch --exit-status
+
+on:
+  workflow_dispatch:
+    inputs:
+      video_url:
+        description: "Source URL (default: 4K YouTube clip)"
+        required: false
+        default: "https://youtu.be/7yh64THGjCE"
+      max_height:
+        description: "Cap source resolution (default 720p)"
+        required: false
+        default: "720"
+      video_bitrate:
+        description: "Target video bitrate"
+        required: false
+        default: "600k"
+
+jobs:
+  libx264-linux:
+    name: libx264 · ubuntu-latest
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Install ffmpeg + yt-dlp
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends ffmpeg
+          ffmpeg -version | head -1
+          python3 -m pip install --quiet yt-dlp
+          yt-dlp --version
+
+      - name: Download source (capped)
+        env:
+          VIDEO_URL: ${{ inputs.video_url }}
+          MAX_HEIGHT: ${{ inputs.max_height }}
+        run: |
+          set -euo pipefail
+          yt-dlp --no-playlist --no-progress \
+            -f "bv*[height<=${MAX_HEIGHT}]+ba/b[height<=${MAX_HEIGHT}]" \
+            --merge-output-format mp4 \
+            -o src.mp4 \
+            "${VIDEO_URL}"
+          ls -lh src.mp4
+          ffprobe -v error -show_entries format=duration,size -show_entries stream=codec_name,width,height,r_frame_rate -of default=nw=1 src.mp4
+
+      - name: Encode (libx264 + watermark)
+        env:
+          VBITRATE: ${{ inputs.video_bitrate }}
+        run: |
+          set -euo pipefail
+          START_NS=$(date +%s%N)
+          ffmpeg -y -hide_banner \
+            -i src.mp4 \
+            -vf "drawtext=fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf:text='libx264 %{pts\\:hms}':fontsize=24:fontcolor=white:x=10:y=10:box=1:boxcolor=black@0.5:boxborderw=4" \
+            -c:v libx264 -preset fast -b:v "${VBITRATE}" -maxrate "${VBITRATE}" -bufsize 1200k \
+            -c:a aac -b:a 128k \
+            -movflags +faststart \
+            out_libx264.mp4 2>&1 | tee encode.log | tail -20
+          END_NS=$(date +%s%N)
+          WALL_MS=$(( (END_NS - START_NS) / 1000000 ))
+          echo ""
+          echo "==== RESULT (libx264) ===="
+          echo "wall_time_ms=${WALL_MS}"
+          echo "ffmpeg_speed=$(grep -oE 'speed= *[0-9.]+x' encode.log | tail -1 || echo 'n/a')"
+          ls -lh out_libx264.mp4
+          ffprobe -v error -show_entries format=duration,bit_rate,size -show_entries stream=codec_name,width,height -of default=nw=1 out_libx264.mp4
+
+  videotoolbox-mac:
+    name: h264_videotoolbox · macos-14
+    runs-on: macos-14
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Install yt-dlp (ffmpeg is preinstalled)
+        run: |
+          set -euo pipefail
+          which ffmpeg && ffmpeg -version | head -1
+          ffmpeg -encoders 2>/dev/null | grep h264_videotoolbox || \
+            (echo "FAIL: h264_videotoolbox not in ffmpeg encoders" && exit 1)
+          python3 -m pip install --user --quiet yt-dlp
+          export PATH="$HOME/Library/Python/bin:$PATH"
+          yt-dlp --version
+
+      - name: Download source (capped)
+        env:
+          VIDEO_URL: ${{ inputs.video_url }}
+          MAX_HEIGHT: ${{ inputs.max_height }}
+        run: |
+          set -euo pipefail
+          export PATH="$HOME/Library/Python/bin:$PATH"
+          yt-dlp --no-playlist --no-progress \
+            -f "bv*[height<=${MAX_HEIGHT}]+ba/b[height<=${MAX_HEIGHT}]" \
+            --merge-output-format mp4 \
+            -o src.mp4 \
+            "${VIDEO_URL}"
+          ls -lh src.mp4
+          ffprobe -v error -show_entries format=duration,size -show_entries stream=codec_name,width,height,r_frame_rate -of default=nw=1 src.mp4
+
+      - name: Encode (h264_videotoolbox + watermark)
+        env:
+          VBITRATE: ${{ inputs.video_bitrate }}
+        run: |
+          set -euo pipefail
+          # macOS ships font at a slightly different path; fall back if missing.
+          FONT=/System/Library/Fonts/Helvetica.ttc
+          [ -f "$FONT" ] || FONT=/System/Library/Fonts/HelveticaNeue.ttc
+          ls -l "$FONT"
+          START_NS=$(date +%s%N)
+          ffmpeg -y -hide_banner \
+            -i src.mp4 \
+            -vf "drawtext=fontfile='${FONT}':text='VideoToolbox %{pts\\:hms}':fontsize=24:fontcolor=white:x=10:y=10:box=1:boxcolor=black@0.5:boxborderw=4" \
+            -c:v h264_videotoolbox -b:v "${VBITRATE}" -realtime 1 -allow_sw 1 \
+            -c:a aac -b:a 128k \
+            -movflags +faststart \
+            out_videotoolbox.mp4 2>&1 | tee encode.log | tail -20
+          END_NS=$(date +%s%N)
+          WALL_MS=$(( (END_NS - START_NS) / 1000000 ))
+          echo ""
+          echo "==== RESULT (h264_videotoolbox) ===="
+          echo "wall_time_ms=${WALL_MS}"
+          echo "ffmpeg_speed=$(grep -oE 'speed= *[0-9.]+x' encode.log | tail -1 || echo 'n/a')"
+          ls -lh out_videotoolbox.mp4
+          ffprobe -v error -show_entries format=duration,bit_rate,size -show_entries stream=codec_name,width,height -of default=nw=1 out_videotoolbox.mp4
+
+      - name: Upload artifact (Mac encoded file)
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: videotoolbox-out
+          path: out_videotoolbox.mp4
+          if-no-files-found: ignore

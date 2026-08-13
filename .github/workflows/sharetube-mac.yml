@@ -175,6 +175,24 @@ jobs:
           exit 1
 
       # ── Run ────────────────────────────────────────────────────────
+      - name: Sanity-check codec pick
+        run: |
+          set -euo pipefail
+          python3 -c "import sys; print('platform:', sys.platform)"
+          python3 -c "
+          import sys
+          sys.path.insert(0, '.')
+          from runner.config import Config, JobConfig
+          cfg = Config(
+              job_id='probe', url='https://example.com',
+              job_cfg=JobConfig(),
+              backend_url='x', app_url='x', internal_token='x',
+              vaapi_device='/dev/dri/renderD128',
+              encoder_preset='fast', ffmpeg_bin='ffmpeg', ytdlp_bin='yt-dlp',
+          )
+          print('video_codec:', cfg.video_codec)
+          "
+
       - name: Resolve job id (workflow_dispatch only)
         if: github.event_name == 'workflow_dispatch'
         env:

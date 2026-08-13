@@ -243,11 +243,13 @@ Two separate caches, so setup stays fast:
   hits the GitHub API); cache key `ytdlp-$OS-<tag>`. The install step
   compares the restored binary's version and re-downloads only when
   there's a newer release.
-- **frozen tools** — ffmpeg (BtbN rolling build), deno (`DENO_VER`),
-  omni-client (`OMNIPROXY_VER`), and the CJK fonts live under a stable
-  key (`tools-fixed-$OS-deno-…-omni-…-ffmpeg-master-1`). Bump the
-  suffix manually to force a refresh. Fonts are unpacked from the
-  `fonts-noto-cjk` .deb into `~/.local/share/fonts` and cached there.
+- **frozen tools** — Linux uses the BtbN ffmpeg build; macOS uses a
+  pinned Apple Silicon static ffmpeg build with VideoToolbox. Deno
+  (`DENO_VER`), omni-client (`OMNIPROXY_VER`), and CJK fonts are also
+  downloaded as ordinary files and cached under stable OS-specific keys.
+  Bump the workflow key suffix manually to force a refresh. Fonts are
+  unpacked from the `fonts-noto-cjk` .deb on Linux and downloaded directly
+  on macOS.
 
 All downloads carry `--max-time` / `--retry` so a slow mirror fails
 fast instead of hanging the whole run.

@@ -11,11 +11,10 @@ name: sharetube-mac
 # for end-to-end testing without going through the Worker.
 #
 # Tooling differs from sharetube.yml because the macOS runner image
-# doesn't ship our frozen Linux binaries: ffmpeg comes from brew
-# (homebrew builds it with `--enable-videotoolbox`), yt-dlp as the
-# universal Python zipapp, deno as the aarch64-apple-darwin zip,
-# omni-client as the macOS tarball, fonts as NotoSansCJK-Regular.ttc
-# pulled from the notofonts/noto-cjk GitHub mirror.
+# uses a pinned Apple Silicon static FFmpeg build with VideoToolbox,
+# yt-dlp as the universal Python zipapp, deno as the aarch64-apple-darwin
+# zip, omni-client as the macOS tarball, and fonts from the
+# notofonts/noto-cjk GitHub mirror. No package manager is used at runtime.
 
 on:
   repository_dispatch:
@@ -61,10 +60,9 @@ jobs:
 
       # ── Tool versions & cache ─────────────────────────────────
       # Only yt-dlp is version-checked at run time (it has clean
-      # numbered tags and updates often). Everything else — ffmpeg
-      # (ffmpeg-full bottle), deno, omni-client, CJK fonts, brew
-      # bottles — is effectively frozen and lives under a stable cache
-      # key, so cached runs skip the downloads entirely.
+      # numbered tags and updates often). Everything else — pinned static
+      # ffmpeg, deno, omni-client, and CJK fonts — is frozen and lives
+      # under a stable cache key, so cached runs skip the downloads entirely.
       #
       # Mirror of the same pattern used in sharetube.yml.
 
@@ -80,18 +78,6 @@ jobs:
             | python3 -c "import json,sys;print(json.load(sys.stdin)['tag_name'])")
           echo "v=${YT_DLP_VER}" >> "$GITHUB_OUTPUT"
 
-      - name: Install deno (brew)
-        # Mac brew install deno isn't part of the frozen-tools cache
-        # because deno lives in /opt/homebrew and our cache key can't
-        # reach across the cellar cheaply. The bottle itself is small
-        # (~60 MB) and brew has its own bottle cache, so this is the
-        # irreducible cost — but warm runs reuse the bottle and only
-        # do the symlink, finishing in ~1 s.
-        env:
-          HOMEBREW_NO_AUTO_UPDATE: '1'
-          HOMEBREW_NO_ANALYTICS: '1'
-        run: brew install deno
-
       # yt-dlp alone — new version = new key, restore-keys falls back
       # to the previous release so we can update the binary in place.
       - name: Cache yt-dlp
@@ -103,19 +89,20 @@ jobs:
           restore-keys: |
             ytdlp-mac-
 
-      # Everything else (ffmpeg bottle cache, omni-client, fonts) —
-      # frozen; bump the simple cache suffix when refreshing them. The
-      # cache intentionally excludes Homebrew's installed Cellar and
-      # ffmpeg symlinks; Homebrew recreates those safely per runner.
+      # All fixed tools are ordinary user-owned files. The FFmpeg archive
+      # is static and contains no external dylib paths, so it is safe to
+      # restore directly on every ephemeral macOS runner.
       - name: Cache frozen tools
         id: fixed
         uses: actions/cache@v6
         with:
           path: |
+            ~/.local/tools/ffmpeg
+            ~/.local/tools/ffprobe
+            ~/.local/tools/deno
             ~/.local/tools/omni-client
-            ~/Library/Caches/Homebrew
             ~/.local/share/fonts
-          key: macos26-fixed-denov${{ vars.DENO_VER }}-omni-${{ vars.OMNIPROXY_VER }}-ffmpeg-simple-2
+          key: macos26-fixed-deno${{ vars.DENO_VER }}-omni-${{ vars.OMNIPROXY_VER }}-ffmpeg-arm64-8.1-20260424-1
 
       - name: Install yt-dlp
         run: |
@@ -134,23 +121,41 @@ jobs:
           chmod +x ~/.local/tools/yt-dlp
           ~/.local/tools/yt-dlp --version
 
-      # ffmpeg-full is intentionally installed on every runner. This is
-      # the stable boundary: Homebrew owns its Cellar and dylib layout;
-      # we only cache bottle downloads and user-owned files. A warm run
-      # still avoids network downloads and stays around 15–25 seconds.
-      - name: Install frozen tools (brew)
-        env:
-          HOMEBREW_NO_AUTO_UPDATE: '1'
-          HOMEBREW_NO_ANALYTICS: '1'
+      - name: Install frozen tools (direct binaries)
         run: |
           set -euo pipefail
           mkdir -p ~/.local/tools ~/.local/share/fonts
 
-          # ffmpeg-full: the Homebrew image's stock ffmpeg is stripped
-          # (no VideoToolbox) and the ffmpeg-full formula is the one
-          # that actually enables --enable-libfreetype (needed by our
-          # drawtext watermark).
-          brew install ffmpeg-full
+          # Pinned static Apple Silicon build. The archive is verified before
+          # extraction; it has no dynamic-library dependency.
+          FFMPEG_URL="https://github.com/kiimelon/FFmpeg-arm-silicon/releases/download/0.5.0/FFmpeg-arm-silicon-Tools-20260424.zip"
+          FFMPEG_SHA256="7262b3ff400c0e88235647d99ab79067010694f059c4aa8af0bb0c43a951b2fc"
+          if [ ! -x ~/.local/tools/ffmpeg ] || [ ! -x ~/.local/tools/ffprobe ]; then
+            curl -fsSL --max-time 300 --retry 2 -o /tmp/ffmpeg-tools.zip "$FFMPEG_URL"
+            echo "$FFMPEG_SHA256  /tmp/ffmpeg-tools.zip" | shasum -a 256 -c -
+            rm -rf /tmp/ffmpeg-tools
+            mkdir -p /tmp/ffmpeg-tools
+            ditto -x -k /tmp/ffmpeg-tools.zip /tmp/ffmpeg-tools
+            install -m 755 /tmp/ffmpeg-tools/Tools/ffmpeg ~/.local/tools/ffmpeg
+            install -m 755 /tmp/ffmpeg-tools/Tools/ffprobe ~/.local/tools/ffprobe
+            rm -rf /tmp/ffmpeg-tools /tmp/ffmpeg-tools.zip
+          fi
+
+          # Deno's official Apple Silicon archive, pinned by DENO_VER.
+          DENO_ZIP="/tmp/deno-aarch64-apple-darwin.zip"
+          if [ ! -x ~/.local/tools/deno ]; then
+            curl -fsSL --max-time 120 --retry 2 -o "$DENO_ZIP" \
+              "https://github.com/denoland/deno/releases/download/${{ vars.DENO_VER }}/deno-aarch64-apple-darwin.zip"
+            DENO_SUM=$(curl -fsSL --max-time 60 --retry 2 \
+              "https://github.com/denoland/deno/releases/download/${{ vars.DENO_VER }}/deno-aarch64-apple-darwin.zip.sha256sum" \
+              | awk '{print $1}')
+            echo "$DENO_SUM  $DENO_ZIP" | shasum -a 256 -c -
+            rm -rf /tmp/deno-tools
+            mkdir -p /tmp/deno-tools
+            ditto -x -k "$DENO_ZIP" /tmp/deno-tools
+            install -m 755 /tmp/deno-tools/deno ~/.local/tools/deno
+            rm -rf /tmp/deno-tools "$DENO_ZIP"
+          fi
 
           # OmniProxy client and font are ordinary cached files. Only
           # fetch them when the cache did not restore them.
@@ -168,20 +173,15 @@ jobs:
               "https://github.com/notofonts/noto-cjk/raw/main/Sans/OTC/NotoSansCJK-Regular.ttc"
           fi
 
-      # Always relink ffmpeg + verify the cache restored what we need.
-      # Idempotent: no-op on a warm cache, fresh symlinks on a cold
-      # cache. Keeps the runner error message informative if the
-      # install step above was skipped but the cellar somehow went
-      # missing (shouldn't happen, but cheap insurance).
-      - name: Link frozen tools into PATH
+      - name: Validate frozen tools
         run: |
           set -euo pipefail
-          mkdir -p ~/.local/tools ~/.local/share/fonts
-          ln -sf /opt/homebrew/opt/ffmpeg-full/bin/ffmpeg ~/.local/tools/ffmpeg
-          ln -sf /opt/homebrew/opt/ffmpeg-full/bin/ffprobe ~/.local/tools/ffprobe
-          /opt/homebrew/opt/ffmpeg-full/bin/ffmpeg -encoders | grep h264_videotoolbox
-          /opt/homebrew/opt/ffmpeg-full/bin/ffmpeg -filters | grep drawtext
-          ls -lh ~/.local/tools/ffmpeg ~/.local/tools/yt-dlp ~/.local/tools/omni-client ~/.local/share/fonts/NotoSansCJK-Regular.ttc
+          ~/.local/tools/ffmpeg -version | head -1
+          ~/.local/tools/ffmpeg -encoders | grep h264_videotoolbox
+          ~/.local/tools/ffmpeg -filters | grep drawtext
+          ~/.local/tools/deno --version | head -1
+          ~/.local/tools/omni-client --version
+          ls -lh ~/.local/tools/ffmpeg ~/.local/tools/ffprobe ~/.local/tools/deno ~/.local/tools/omni-client ~/.local/share/fonts/NotoSansCJK-Regular.ttc
 
       - name: Add tools to PATH
         run: echo "$HOME/.local/tools" >> "$GITHUB_PATH"

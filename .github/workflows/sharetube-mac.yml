@@ -176,7 +176,15 @@ jobs:
           # resolve through the same relative paths so they still work
           # from the new location.
           rm -rf ~/.local/tools/ffmpeg-full
-          cp -R "$(brew --prefix ffmpeg-full)" ~/.local/tools/ffmpeg-full
+          mkdir -p ~/.local/tools/ffmpeg-full
+          # `brew --prefix ffmpeg-full` is /opt/homebrew/opt/ffmpeg-full,
+          # itself a symlink into the Cellar. On macOS, `cp -R` of that
+          # symlink can preserve only the link instead of copying its
+          # contents. The trailing `/.` forces a real directory copy.
+          FFMPEG_PREFIX=$(brew --prefix ffmpeg-full)
+          cp -R "${FFMPEG_PREFIX}/." ~/.local/tools/ffmpeg-full/
+          test -x ~/.local/tools/ffmpeg-full/bin/ffmpeg
+          test -x ~/.local/tools/ffmpeg-full/bin/ffprobe
 
           # OmniProxy client: local SOCKS5 → WebSocket → Oracle exit IP.
           curl -fsSL --max-time 120 --retry 2 -o /tmp/omni.tar.xz \
@@ -200,6 +208,8 @@ jobs:
           mkdir -p ~/.local/tools ~/.local/share/fonts
           ln -sf ~/.local/tools/ffmpeg-full/bin/ffmpeg ~/.local/tools/ffmpeg
           ln -sf ~/.local/tools/ffmpeg-full/bin/ffprobe ~/.local/tools/ffprobe
+          test -x ~/.local/tools/ffmpeg
+          test -x ~/.local/tools/ffprobe
           ~/.local/tools/ffmpeg -encoders | grep h264_videotoolbox
           ~/.local/tools/ffmpeg -filters | grep drawtext
           ls -lh ~/.local/tools/ffmpeg ~/.local/tools/yt-dlp ~/.local/tools/omni-client ~/.local/share/fonts/NotoSansCJK-Regular.ttc

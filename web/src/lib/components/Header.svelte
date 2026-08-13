@@ -52,7 +52,7 @@
             aria-label="Settings">
       <span>settings</span>
     </button>
-    <button class="btn primary" id="helpBtn" type="button" onclick={onOpenHelp}
+    <button class="btn" id="helpBtn" type="button" onclick={onOpenHelp}
             aria-label="Help">
       <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor"
            stroke-width="1.8" stroke-linecap="round">

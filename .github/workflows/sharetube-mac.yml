@@ -76,7 +76,6 @@ jobs:
           key: macos26-tools-denov${{ vars.DENO_VER }}-omni-${{ vars.OMNIPROXY_VER }}-ffmpeg-brew-1
 
       - name: Install frozen tools
-        if: steps.fixed.outputs.cache-hit != 'true'
         run: |
           set -euo pipefail
           mkdir -p ~/.local/tools ~/.local/share/fonts

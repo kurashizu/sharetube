@@ -107,22 +107,29 @@ jobs:
           restore-keys: |
             ytdlp-mac-
 
-      # Everything else (ffmpeg, omni-client, brew bottles, fonts) —
-      # frozen; bump the -3 suffix manually when you want to refresh
+      # Everything else (ffmpeg-full copy + omni-client + fonts) —
+      # frozen; bump the -4 suffix manually when you want to refresh
       # them. NOTE: paths are enumerated (NOT ~/.local/tools) so the
       # frozen cache never contains yt-dlp — that would shadow the
       # separate version-checked yt-dlp cache above.
+      #
+      # Why ~/.local/tools/ffmpeg-full/? We copy the whole brew cellar
+      # subtree into ~/.local/tools/ on install so that subsequent runs
+      # don't need the brew cellar at all — the cache restore puts the
+      # copy back, and the symlink below points into it. Without this
+      # step, a warm cache hit would still need `brew install
+      # ffmpeg-full` because the cellar under /opt/homebrew is outside
+      # the cache path and Homebrew doesn't persist it.
       - name: Cache frozen tools
         id: fixed
         uses: actions/cache@v6
         with:
           path: |
-            ~/.local/tools/ffmpeg
-            ~/.local/tools/ffprobe
+            ~/.local/tools/ffmpeg-full
             ~/.local/tools/omni-client
             ~/Library/Caches/Homebrew
             ~/.local/share/fonts
-          key: macos26-fixed-denov${{ vars.DENO_VER }}-omni-${{ vars.OMNIPROXY_VER }}-ffmpeg-brew-3
+          key: macos26-fixed-denov${{ vars.DENO_VER }}-omni-${{ vars.OMNIPROXY_VER }}-ffmpeg-brew-4
 
       - name: Install yt-dlp
         run: |
@@ -145,8 +152,9 @@ jobs:
       # brew install ffmpeg-full is ~20 s even when every bottle is
       # already on disk — the formula needs to be re-read, dependencies
       # re-enumerated, the install plan rebuilt — so guarding the step
-      # is the actual win. The bottles themselves ride in the cache
-      # via ~/Library/Caches/Homebrew so even cold installs are quick.
+      # is the actual win. We then copy the resulting Cellar subtree
+      # into ~/.local/tools/ffmpeg-full so the cache can carry it
+      # without needing Homebrew's prefix on subsequent runs.
       - name: Install frozen tools (brew)
         if: steps.fixed.outputs.cache-hit != 'true'
         env:
@@ -162,6 +170,14 @@ jobs:
           # drawtext watermark).
           brew install ffmpeg-full
 
+          # Copy the Cellar subtree into ~/.local/tools so the cache
+          # can carry it on subsequent runs. Symlinks inside the Cellar
+          # (libavcodec.dylib → ../Cellar/.../lib/libavcodec.dylib)
+          # resolve through the same relative paths so they still work
+          # from the new location.
+          rm -rf ~/.local/tools/ffmpeg-full
+          cp -R "$(brew --prefix ffmpeg-full)" ~/.local/tools/ffmpeg-full
+
           # OmniProxy client: local SOCKS5 → WebSocket → Oracle exit IP.
           curl -fsSL --max-time 120 --retry 2 -o /tmp/omni.tar.xz \
             "https://github.com/kurashizu/OmniProxy/releases/download/${{ vars.OMNIPROXY_VER }}/omni-proxy-macos-aarch64.tar.xz"
@@ -174,17 +190,16 @@ jobs:
           curl -fsSL --max-time 120 --retry 2 -o ~/.local/share/fonts/NotoSansCJK-Regular.ttc \
             "https://github.com/notofonts/noto-cjk/raw/main/Sans/OTC/NotoSansCJK-Regular.ttc"
 
-      # Always relink ffmpeg + verify the cache restored what we need.
-      # Idempotent: no-op on a warm cache, fresh symlinks on a cold
-      # cache. Keeps the runner error message informative if the
-      # install step above was skipped but the cellar somehow went
-      # missing (shouldn't happen, but cheap insurance).
+      # Always relink the convenience names into PATH and verify
+      # VideoToolbox + drawtext are present. Idempotent on warm cache
+      # (symlinks already point at the restored Cellar copy) and
+      # creates them fresh on a cold cache.
       - name: Link frozen tools into PATH
         run: |
           set -euo pipefail
           mkdir -p ~/.local/tools ~/.local/share/fonts
-          ln -sf "$(brew --prefix ffmpeg-full)/bin/ffmpeg" ~/.local/tools/ffmpeg
-          ln -sf "$(brew --prefix ffmpeg-full)/bin/ffprobe" ~/.local/tools/ffprobe
+          ln -sf ~/.local/tools/ffmpeg-full/bin/ffmpeg ~/.local/tools/ffmpeg
+          ln -sf ~/.local/tools/ffmpeg-full/bin/ffprobe ~/.local/tools/ffprobe
           ~/.local/tools/ffmpeg -encoders | grep h264_videotoolbox
           ~/.local/tools/ffmpeg -filters | grep drawtext
           ls -lh ~/.local/tools/ffmpeg ~/.local/tools/yt-dlp ~/.local/tools/omni-client ~/.local/share/fonts/NotoSansCJK-Regular.ttc

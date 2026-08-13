@@ -333,11 +333,13 @@ def transcode(
     if shutil.which("ffprobe") is None:
         raise RuntimeError("ffprobe not on PATH")
 
-    use_vaapi = Path(cfg.vaapi_device).exists()
-    if use_vaapi:
-        backend.log([f"Transcoding: VAAPI device={cfg.vaapi_device}"])
+    codec = cfg.video_codec
+    if codec == "h264_videotoolbox":
+        backend.log([f"Transcoding: h264_videotoolbox (VideoToolbox hardware H.264)"])
+    elif codec == "h264_vaapi":
+        backend.log([f"Transcoding: h264_vaapi (VAAPI device={cfg.vaapi_device})"])
     else:
-        backend.log([f"Transcoding: software libx264 (no GPU at {cfg.vaapi_device})"])
+        backend.log([f"Transcoding: libx264 software (no GPU)"])
 
     duration_s = _probe_duration(src)
     backend.log([f"Source duration: {duration_s:.1f}s"])
@@ -369,7 +371,7 @@ def transcode(
 
     cmd = _build_cmd(
         src, dst, cfg, src_kbps, effective_resolution,
-        use_watermark=use_watermark, font=font, use_vaapi=use_vaapi,
+        use_watermark=use_watermark, font=font,
     )
     backend.log(["$ " + " ".join(cmd)])
 

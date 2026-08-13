@@ -302,7 +302,9 @@ jobs:
             ~/.local/tools/wgcf generate \
               --config "$RUNNER_TEMP/sharetube-warp/wgcf-account.toml" \
               --profile "$RUNNER_TEMP/sharetube-warp/wgcf.conf"
-            sudo env "PATH=$HOME/.local/tools:$PATH" wg-quick up "$RUNNER_TEMP/sharetube-warp/wgcf.conf"
+            sudo env "PATH=$HOME/.local/tools:$PATH" \
+              "WG_QUICK_USERSPACE_IMPLEMENTATION=$HOME/.local/tools/wireguard-go" \
+              wg-quick up "$RUNNER_TEMP/sharetube-warp/wgcf.conf"
             if WARP_IP=$(curl -fsSL --max-time 20 https://api.ipify.org); then
               echo "Cloudflare WARP tunnel up, exit IP: $WARP_IP"
             else

@@ -179,39 +179,6 @@ jobs:
           exit 1
 
       # ── Run ────────────────────────────────────────────────────────
-      - name: Sanity-check codec pick
-        run: |
-          set -euo pipefail
-          python3 -c "import sys; print('platform:', sys.platform)"
-          python3 -c "
-          import sys
-          sys.path.insert(0, '.')
-          from runner.config import Config, JobConfig
-          cfg = Config(
-              job_id='probe', url='https://example.com',
-              job_cfg=JobConfig(),
-              backend_url='x', app_url='x', internal_token='x',
-              vaapi_device='/dev/dri/renderD128',
-              encoder_preset='fast', ffmpeg_bin='ffmpeg', ytdlp_bin='yt-dlp',
-          )
-          print('video_codec:', cfg.video_codec)
-          "
-
-      - name: Direct ffmpeg VideoToolbox smoke
-        if: github.event_name == 'workflow_dispatch'
-        run: |
-          set -euo pipefail
-          ffmpeg -y -hide_banner \
-            -f lavfi -i "testsrc2=duration=10:size=1280x720:rate=30" \
-            -f lavfi -i "sine=frequency=440:duration=10" \
-            -vf "drawtext=fontfile='$HOME/.local/share/fonts/NotoSansCJK-Regular.ttc':text='VT %{pts\\:hms}':fontsize=24:fontcolor=white:x=10:y=10:box=1:boxcolor=black@0.5:boxborderw=4" \
-            -c:v h264_videotoolbox -b:v 600k -realtime 1 -allow_sw 1 \
-            -c:a aac -b:a 128k \
-            /tmp/vt_test.mp4 2>&1
-          echo "EXIT_CODE=$?"
-          ls -lh /tmp/vt_test.mp4
-          ffprobe -v error -show_streams /tmp/vt_test.mp4 2>&1 | head -10
-
       - name: Resolve job id (workflow_dispatch only)
         if: github.event_name == 'workflow_dispatch'
         env:

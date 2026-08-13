@@ -20,6 +20,9 @@ concurrency:
 
 jobs:
   run:
+    # Linux worker. Only run on `runner: linux` (default) so the Mac
+    # workflow doesn't double-fire on the same dispatch.
+    if: github.event_name != 'repository_dispatch' || github.event.client_payload.runner != 'mac'
     runs-on: ubuntu-latest
     timeout-minutes: 30
 

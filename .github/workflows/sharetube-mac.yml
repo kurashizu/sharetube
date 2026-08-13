@@ -43,6 +43,9 @@ concurrency:
 
 jobs:
   run:
+    # Mac worker. Fires when dispatched with `runner: mac`, or via
+    # workflow_dispatch (manual smoke tests). Default Linux jobs go
+    # to sharetube.yml instead.
     if: github.event_name == 'workflow_dispatch' || github.event.client_payload.runner == 'mac'
     runs-on: macos-26
     timeout-minutes: 30

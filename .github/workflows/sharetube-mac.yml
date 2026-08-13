@@ -172,9 +172,31 @@ jobs:
           exit 1
 
       # ── Run ────────────────────────────────────────────────────────
+      - name: Resolve job id (workflow_dispatch only)
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          WORKER_URL: ${{ vars.WORKER_URL }}
+          INTERNAL_TOKEN: ${{ secrets.INTERNAL_TOKEN }}
+          URL: ${{ inputs.url }}
+          CONFIG_JSON: ${{ inputs.config_json }}
+        run: |
+          set -euo pipefail
+          # When invoked via repository_dispatch the Worker already
+          # created the D1 row; for manual workflow_dispatch tests we
+          # POST /api/jobs ourselves so the runner has a real job_id
+          # and its progress updates land in the backend instead of
+          # being silently dropped as 404s.
+          RESP=$(curl -sS -X POST "${WORKER_URL}/api/jobs" \
+            -H 'Content-Type: application/json' \
+            -d "{\"url\":\"${URL}\",\"config\":${CONFIG_JSON}}")
+          echo "create response: $RESP"
+          JOB_ID=$(echo "$RESP" | python3 -c "import json,sys; print(json.load(sys.stdin)['id'])")
+          echo "JOB_ID=${JOB_ID}"
+          echo "JOB_ID=${JOB_ID}" >> "$GITHUB_ENV"
+
       - name: Run sharetube runner
         env:
-          JOB_ID: ${{ github.event.client_payload.job_id || inputs.job_id }}
+          JOB_ID: ${{ github.event.client_payload.job_id || env.JOB_ID }}
           JOB_URL: ${{ github.event.client_payload.url || inputs.url }}
           JOB_CONFIG_JSON: ${{ github.event.client_payload.config || inputs.config_json }}
           BACKEND_URL: ${{ vars.WORKER_URL }}

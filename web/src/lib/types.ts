@@ -19,8 +19,14 @@ export interface JobConfig {
   watermark_line2: string;
   watermark_font_size: number;
   /** libx264 `-preset` value. Faster presets = quicker encode,
-   *  larger file; slower presets = longer encode, smaller file. */
+   *  larger file; slower presets = longer encode, smaller file.
+   *  (Ignored on macOS — h264_videotoolbox has no preset.) */
   encoder_preset: string;
+  /** Runner target: 'linux' (libx264, default) or 'mac'
+   *  (h264_videotoolbox hardware H.264). Mac is free on public
+   *  repos but the GitHub-hosted runners are a 2x minute multiplier,
+   *  so the user opts in. */
+  runner: 'linux' | 'mac';
   /** When true, the runner decrypts the repo's `secrets/cookies.txt.enc`
    *  with the `COOKIES_PASS` GH secret and passes the resulting file to
    *  yt-dlp via `--cookies`. Use false to skip cookies entirely. */
@@ -114,8 +120,13 @@ export interface UserSettings {
   /** libx264 `-preset` value. Trade-off: faster presets encode
    *  quickly but produce larger files; slower presets compress better
    *  but can take many minutes per minute of video. Runner whitelists
-   *  a safe subset (see runner/config.py X264_PRESETS). */
+   *  a safe subset (see runner/config.py X264_PRESETS). Ignored when
+   *  ``runner === 'mac'`` — VideoToolbox has no preset concept. */
   encoder_preset: string;
+  /** Runner target. 'linux' = default ubuntu runner with libx264.
+   *  'mac' = macos-26 runner with h264_videotoolbox (faster, ~3x,
+   *  but consumes more GH quota). Persisted in localStorage. */
+  runner: 'linux' | 'mac';
   /** When true, the runner uses the cookies.txt bundled (encrypted) in
    *  the repo. Most videos work without; only required for some that
    *  trigger YouTube's bot wall. */

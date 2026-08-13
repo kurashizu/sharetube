@@ -46,6 +46,10 @@ export const DEFAULT_SETTINGS: UserSettings = {
   // libx264 preset; same default as runner/config.py. Fast gives a
   // good speed/size trade-off for typical downloads.
   encoder_preset: 'fast',
+  // Default to the Linux runner — cheaper, proven path. Mac is opt-in
+  // for users who want the ~3x hardware-encode speedup; the toggle
+  // lives in the Settings modal.
+  runner: 'linux',
   // Cookies are always used (bot wall). The option is no longer
   // exposed in the UI; kept in the type only for stored settings
   // from older clients.

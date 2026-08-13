@@ -42,6 +42,7 @@
           watermark_line2: '{title} · {resolution} · {duration}',
           watermark_font_size: 28,
           encoder_preset: cfg.encoder_preset,
+          runner: cfg.runner,
           use_cookies: true
         }
       });

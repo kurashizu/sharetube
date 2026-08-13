@@ -95,11 +95,11 @@
             <div class="select-wrap">
               <select id="cfg-proxy-mode" class="field-select" bind:value={draft.proxy_mode}>
                 <option value="oracle-australia">Oracle Australia (default)</option>
-                <option value="cloudflare-warp">Cloudflare WARP (coming soon)</option>
+                <option value="cloudflare-warp">Cloudflare WARP</option>
                 <option value="disabled">Disabled</option>
               </select>
             </div>
-            <div class="field-hint">Oracle Australia is enabled by default to avoid datacenter IP restrictions. Cloudflare WARP is not implemented yet.</div>
+            <div class="field-hint">Oracle Australia is enabled by default to avoid datacenter IP restrictions. Cloudflare WARP routes the whole runner through Cloudflare.</div>
           </div>
         </div>
 

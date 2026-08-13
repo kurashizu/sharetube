@@ -54,8 +54,8 @@ export const DEFAULT_SETTINGS: UserSettings = {
   // exposed in the UI; kept in the type only for stored settings
   // from older clients.
   use_cookies: true,
-  // Oracle Australia avoids datacenter IP bot walls. Cloudflare WARP is
-  // shown as a placeholder until its runner integration is implemented.
+  // Oracle Australia avoids datacenter IP bot walls. Cloudflare WARP
+  // uses the encrypted account profile and a full WireGuard tunnel.
   proxy_mode: 'oracle-australia'
 };
 

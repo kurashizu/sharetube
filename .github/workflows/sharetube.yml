@@ -76,8 +76,11 @@ jobs:
             ~/.local/tools/ffprobe
             ~/.local/tools/omni-client
             ~/.local/tools/deno
+            ~/.local/tools/wgcf
+            ~/.local/tools/wg
+            ~/.local/tools/wg-quick
             ~/.local/share/fonts
-          key: tools-fixed-${{ runner.os }}-deno-${{ vars.DENO_VER }}-omni-${{ vars.OMNIPROXY_VER }}-ffmpeg-master-1
+          key: tools-fixed-${{ runner.os }}-deno-${{ vars.DENO_VER }}-omni-${{ vars.OMNIPROXY_VER }}-ffmpeg-master-warp-v2.2.32-wg-1
 
       - name: Install yt-dlp
         run: |
@@ -124,6 +127,21 @@ jobs:
           unzip -o /tmp/deno.zip -d ~/.local/tools > /dev/null
           chmod +x ~/.local/tools/deno
           rm -f /tmp/deno.zip
+          # wgcf: Cloudflare WARP account/profile generator. The account
+          # file is decrypted only in the tunnel step below.
+          curl -fsSL --max-time 120 --retry 2 -o ~/.local/tools/wgcf \
+            "https://github.com/ViRb3/wgcf/releases/download/v2.2.32/wgcf_2.2.32_linux_amd64"
+          echo "2ff97f2201972ce582a424455d50a3719a380eef0cd1f3144f7779348e122a2c  ~/.local/tools/wgcf" | sha256sum -c -
+          chmod +x ~/.local/tools/wgcf
+          # WireGuard userspace tools, built from pinned upstream source.
+          curl -fsSL --max-time 120 --retry 2 -o /tmp/wireguard-tools.tar.xz \
+            "https://git.zx2c4.com/wireguard-tools/snapshot/wireguard-tools-1.0.20260223.tar.xz"
+          echo "af459827b80bfd31b83b08077f4b5843acb7d18ad9a33a2ef532d3090f291fbf  /tmp/wireguard-tools.tar.xz" | sha256sum -c -
+          tar xJf /tmp/wireguard-tools.tar.xz -C /tmp
+          make -C /tmp/wireguard-tools-1.0.20260223/src -j2
+          install -m 755 /tmp/wireguard-tools-1.0.20260223/src/wg ~/.local/tools/wg
+          install -m 755 /tmp/wireguard-tools-1.0.20260223/src/wg-quick/linux.bash ~/.local/tools/wg-quick
+          rm -rf /tmp/wireguard-tools-1.0.20260223 /tmp/wireguard-tools.tar.xz
           ~/.local/tools/ffmpeg -version | head -1
           ~/.local/tools/omni-client --version
           ~/.local/tools/deno --version | head -1
@@ -187,21 +205,38 @@ jobs:
           ls -la ~/.local/share/sharetube/cookies.txt
 
       # ── Tunnel ──────────────────────────────────────────────────────
-      # Start the OmniProxy SOCKS5 client locally (127.0.0.1:1080). It
-      # multiplexes all traffic over a WebSocket to the Oracle server so
-      # yt-dlp exits from the Oracle IP (where the cookies were minted)
-      # instead of Azure — which is what defeats the bot wall + keeps
-      # the cookies from being turned over on IP change.
-      - name: Start OmniProxy tunnel
+      # The selected mode controls the route before yt-dlp starts:
+      # Oracle Australia uses the existing SOCKS5 tunnel; WARP uses the
+      # encrypted wgcf account and a full WireGuard tunnel; disabled uses
+      # the runner's normal network.
+      - name: Start proxy tunnel
         env:
           OMNIPROXY_SERVER: ${{ vars.OMNIPROXY_SERVER }}
           PROXY_TOKEN: ${{ secrets.PROXY_TOKEN }}
+          COOKIES_PASS: ${{ secrets.COOKIES_PASS }}
           JOB_CONFIG_JSON: ${{ github.event.client_payload.config || inputs.config_json }}
         run: |
           set -euo pipefail
           PROXY_MODE=$(python3 -c 'import json,os; d=json.loads(os.environ.get("JOB_CONFIG_JSON") or "{}"); m=d.get("proxy_mode"); print(m if m in {"oracle-australia","cloudflare-warp","disabled"} else ("oracle-australia" if d.get("use_proxy", True) else "disabled"))')
           if [ "$PROXY_MODE" = "cloudflare-warp" ]; then
-            echo "Cloudflare WARP is not implemented yet; continuing without proxy"
+            command -v wg-quick >/dev/null || { echo "::error::wireguard-tools missing"; exit 1; }
+            command -v wg >/dev/null || { echo "::error::wg missing"; exit 1; }
+            [ -f secrets/wgcf-account.toml.enc ] || { echo "::error::encrypted WARP account missing"; exit 1; }
+            mkdir -p "$RUNNER_TEMP/sharetube-warp"
+            openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 \
+              -in secrets/wgcf-account.toml.enc \
+              -out "$RUNNER_TEMP/sharetube-warp/wgcf-account.toml" \
+              -pass env:COOKIES_PASS
+            ~/.local/tools/wgcf generate \
+              --config "$RUNNER_TEMP/sharetube-warp/wgcf-account.toml" \
+              --profile "$RUNNER_TEMP/sharetube-warp/wgcf.conf"
+            sudo env "PATH=$HOME/.local/tools:$PATH" wg-quick up "$RUNNER_TEMP/sharetube-warp/wgcf.conf"
+            if WARP_IP=$(curl -fsSL --max-time 20 https://api.ipify.org); then
+              echo "Cloudflare WARP tunnel up, exit IP: $WARP_IP"
+            else
+              echo "::error::Cloudflare WARP tunnel did not provide network access"
+              exit 1
+            fi
             exit 0
           fi
           if [ "$PROXY_MODE" = "disabled" ]; then
@@ -249,10 +284,14 @@ jobs:
           echo "PROXY_URL=${PROXY_URL:-<none>}"
           python -m runner
 
-      - name: Cleanup (kill tunnel + wipe decrypted cookies)
+      - name: Cleanup (kill tunnel + wipe secrets)
         if: always()
         run: |
+          if [ -f "${RUNNER_TEMP:-/tmp}/sharetube-warp/wgcf.conf" ]; then
+            sudo env "PATH=$HOME/.local/tools:$PATH" wg-quick down "${RUNNER_TEMP:-/tmp}/sharetube-warp/wgcf.conf" || true
+          fi
           pkill -f 'omni-client' || true
+          rm -rf "${RUNNER_TEMP:-/tmp}/sharetube-warp"
           rm -f ~/.local/share/sharetube/cookies.txt
 
       # Upload only the runner's own transcript (a log text we push to

@@ -253,8 +253,10 @@ Two separate caches, so setup stays fast:
 
 All downloads carry `--max-time` / `--retry` so a slow mirror fails
 fast instead of hanging the whole run. The Settings modal offers three
-proxy modes: Oracle Australia (default), Cloudflare WARP (placeholder),
-and Disabled. Only the Oracle tunnel is currently implemented.
+proxy modes: Oracle Australia (default), Cloudflare WARP, and Disabled.
+The WARP account is stored encrypted in `secrets/wgcf-account.toml.enc`
+using the same `COOKIES_PASS` secret; plaintext account files are never
+committed.
 
 ## Manual re-run
 

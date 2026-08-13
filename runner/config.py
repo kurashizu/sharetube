@@ -47,8 +47,8 @@ class JobConfig:
     watermark_font_size: int = 28
     encoder_preset: str = DEFAULT_ENCODER_PRESET
     use_cookies: bool = True
-    # Proxy route selected by the user. The workflow currently implements
-    # only oracle-australia; cloudflare-warp is a visible placeholder.
+    # Proxy route selected by the user. The workflow implements Oracle
+    # Australia and Cloudflare WARP; disabled uses the normal network.
     proxy_mode: str = "oracle-australia"
 
     # x264 presets exposed to the UI. Anything outside this whitelist

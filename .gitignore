@@ -36,3 +36,7 @@ Thumbs.db
 *.log
 .cache/
 sharetube-*.tmp
+
+# Local WARP account/config files
+wgcf-account.toml
+wgcf-profile.conf

@@ -100,9 +100,13 @@ jobs:
             ~/.local/tools/ffmpeg
             ~/.local/tools/ffprobe
             ~/.local/tools/deno
+            ~/.local/tools/wgcf
+            ~/.local/tools/wg
+            ~/.local/tools/wg-quick
+            ~/.local/tools/wireguard-go
             ~/.local/tools/omni-client
             ~/.local/share/fonts
-          key: macos26-fixed-deno${{ vars.DENO_VER }}-omni-${{ vars.OMNIPROXY_VER }}-ffmpeg-arm64-8.1-20260424-1
+          key: macos26-fixed-deno${{ vars.DENO_VER }}-omni-${{ vars.OMNIPROXY_VER }}-ffmpeg-arm64-8.1-warp-v2.2.32-wg-1
 
       - name: Install yt-dlp
         run: |
@@ -155,6 +159,40 @@ jobs:
             ditto -x -k "$DENO_ZIP" /tmp/deno-tools
             install -m 755 /tmp/deno-tools/deno ~/.local/tools/deno
             rm -rf /tmp/deno-tools "$DENO_ZIP"
+          fi
+
+          # wgcf: Cloudflare WARP account/profile generator. The account
+          # file is decrypted only in the tunnel step below.
+          if [ ! -x ~/.local/tools/wgcf ]; then
+            curl -fsSL --max-time 120 --retry 2 -o ~/.local/tools/wgcf \
+              "https://github.com/ViRb3/wgcf/releases/download/v2.2.32/wgcf_2.2.32_darwin_arm64"
+            echo "6c19e27eefade597f3778f5fdcbd0a5f5297e9ff343cbb44cc206e21d83d48fb  ~/.local/tools/wgcf" | shasum -a 256 -c -
+            chmod +x ~/.local/tools/wgcf
+          fi
+
+          # WireGuard userspace tools, built from pinned upstream sources.
+          if [ ! -x ~/.local/tools/wg ] || [ ! -x ~/.local/tools/wg-quick ] || [ ! -x ~/.local/tools/wireguard-go ]; then
+            curl -fsSL --max-time 120 --retry 2 -o /tmp/go.tar.gz \
+              "https://go.dev/dl/go1.26.5.darwin-arm64.tar.gz"
+            echo "efb87ff28af9a188d0536ef5d42e63dd52ba8263cd7344a993cc48dd11dedb6a  /tmp/go.tar.gz" | shasum -a 256 -c -
+            rm -rf /tmp/go
+            tar xzf /tmp/go.tar.gz -C /tmp
+            export PATH="/tmp/go/bin:$PATH"
+            curl -fsSL --max-time 120 --retry 2 -o /tmp/wireguard-tools.tar.xz \
+              "https://git.zx2c4.com/wireguard-tools/snapshot/wireguard-tools-1.0.20260223.tar.xz"
+            echo "af459827b80bfd31b83b08077f4b5843acb7d18ad9a33a2ef532d3090f291fbf  /tmp/wireguard-tools.tar.xz" | shasum -a 256 -c -
+            curl -fsSL --max-time 120 --retry 2 -o /tmp/wireguard-go.tar.xz \
+              "https://git.zx2c4.com/wireguard-go/snapshot/wireguard-go-0.0.20250522.tar.xz"
+            echo "c7eeffb13e5eb43b93e54a21d78dd71414771af9e07112da5275690493695c9c  /tmp/wireguard-go.tar.xz" | shasum -a 256 -c -
+            rm -rf /tmp/wireguard-tools-1.0.20260223 /tmp/wireguard-go-0.0.20250522
+            tar xJf /tmp/wireguard-tools.tar.xz -C /tmp
+            tar xJf /tmp/wireguard-go.tar.xz -C /tmp
+            make -C /tmp/wireguard-tools-1.0.20260223/src -j2
+            make -C /tmp/wireguard-go-0.0.20250522 -j2
+            install -m 755 /tmp/wireguard-tools-1.0.20260223/src/wg ~/.local/tools/wg
+            install -m 755 /tmp/wireguard-tools-1.0.20260223/src/wg-quick/darwin.bash ~/.local/tools/wg-quick
+            install -m 755 /tmp/wireguard-go-0.0.20250522/wireguard-go ~/.local/tools/wireguard-go
+            rm -rf /tmp/go /tmp/go.tar.gz /tmp/wireguard-tools-1.0.20260223 /tmp/wireguard-go-0.0.20250522 /tmp/wireguard-tools.tar.xz /tmp/wireguard-go.tar.xz
           fi
 
           # OmniProxy client and font are ordinary cached files. Only
@@ -235,19 +273,40 @@ jobs:
           ls -la ~/.local/share/sharetube/cookies.txt
 
       # ── Tunnel ──────────────────────────────────────────────────────
-      # Same SOCKS5 → WebSocket → Oracle exit-IP setup as sharetube.yml.
-      # Without it, the macos-26 datacenter IP hits the same YouTube
-      # bot wall as the Linux datacenter IP.
-      - name: Start OmniProxy tunnel
+      # The selected mode controls the route before yt-dlp starts:
+      # Oracle Australia uses the existing SOCKS5 tunnel; WARP uses the
+      # encrypted wgcf account and a full WireGuard tunnel; disabled uses
+      # the runner's normal network.
+      - name: Start proxy tunnel
         env:
           OMNIPROXY_SERVER: ${{ vars.OMNIPROXY_SERVER }}
           PROXY_TOKEN: ${{ secrets.PROXY_TOKEN }}
+          COOKIES_PASS: ${{ secrets.COOKIES_PASS }}
           JOB_CONFIG_JSON: ${{ github.event.client_payload.config || inputs.config_json }}
         run: |
           set -euo pipefail
           PROXY_MODE=$(python3 -c 'import json,os; d=json.loads(os.environ.get("JOB_CONFIG_JSON") or "{}"); m=d.get("proxy_mode"); print(m if m in {"oracle-australia","cloudflare-warp","disabled"} else ("oracle-australia" if d.get("use_proxy", True) else "disabled"))')
           if [ "$PROXY_MODE" = "cloudflare-warp" ]; then
-            echo "Cloudflare WARP is not implemented yet; continuing without proxy"
+            command -v wg-quick >/dev/null || { echo "::error::wireguard-tools missing"; exit 1; }
+            command -v wg >/dev/null || { echo "::error::wg missing"; exit 1; }
+            [ -x ~/.local/tools/wireguard-go ] || { echo "::error::wireguard-go missing"; exit 1; }
+            [ -f secrets/wgcf-account.toml.enc ] || { echo "::error::encrypted WARP account missing"; exit 1; }
+            export WG_QUICK_USERSPACE_IMPLEMENTATION="$HOME/.local/tools/wireguard-go"
+            mkdir -p "$RUNNER_TEMP/sharetube-warp"
+            openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 \
+              -in secrets/wgcf-account.toml.enc \
+              -out "$RUNNER_TEMP/sharetube-warp/wgcf-account.toml" \
+              -pass env:COOKIES_PASS
+            ~/.local/tools/wgcf generate \
+              --config "$RUNNER_TEMP/sharetube-warp/wgcf-account.toml" \
+              --profile "$RUNNER_TEMP/sharetube-warp/wgcf.conf"
+            sudo env "PATH=$HOME/.local/tools:$PATH" wg-quick up "$RUNNER_TEMP/sharetube-warp/wgcf.conf"
+            if WARP_IP=$(curl -fsSL --max-time 20 https://api.ipify.org); then
+              echo "Cloudflare WARP tunnel up, exit IP: $WARP_IP"
+            else
+              echo "::error::Cloudflare WARP tunnel did not provide network access"
+              exit 1
+            fi
             exit 0
           fi
           if [ "$PROXY_MODE" = "disabled" ]; then
@@ -327,8 +386,13 @@ jobs:
           [ -n "$JOB_ID" ] && [ -n "$JOB_URL" ] || { echo "missing JOB_ID or JOB_URL"; exit 1; }
           python -m runner
 
-      - name: Cleanup (kill tunnel + wipe decrypted cookies)
+      - name: Cleanup (kill tunnel + wipe secrets)
         if: always()
         run: |
+          if [ -f "${RUNNER_TEMP:-/tmp}/sharetube-warp/wgcf.conf" ]; then
+            sudo env "PATH=$HOME/.local/tools:$PATH" WG_QUICK_USERSPACE_IMPLEMENTATION="$HOME/.local/tools/wireguard-go" wg-quick down "${RUNNER_TEMP:-/tmp}/sharetube-warp/wgcf.conf" || true
+          fi
           pkill -f 'omni-client' || true
+          pkill -f 'wireguard-go' || true
+          rm -rf "${RUNNER_TEMP:-/tmp}/sharetube-warp"
           rm -f ~/.local/share/sharetube/cookies.txt

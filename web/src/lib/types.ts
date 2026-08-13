@@ -27,12 +27,12 @@ export interface JobConfig {
    *  repos but the GitHub-hosted runners are a 2x minute multiplier,
    *  so the user opts in. */
   runner: 'linux' | 'mac';
+  /** Proxy route for download traffic. */
+  proxy_mode: 'oracle-australia' | 'cloudflare-warp' | 'disabled';
   /** When true, the runner decrypts the repo's `secrets/cookies.txt.enc`
    *  with the `COOKIES_PASS` GH secret and passes the resulting file to
    *  yt-dlp via `--cookies`. Use false to skip cookies entirely. */
   use_cookies: boolean;
-  /** Proxy route for download traffic. Cloudflare WARP is a placeholder. */
-  proxy_mode: 'oracle-australia' | 'cloudflare-warp' | 'disabled';
 }
 
 /** Per-phase progress snapshot, sent with each update from the runner. */
@@ -129,12 +129,12 @@ export interface UserSettings {
    *  'mac' = macos-26 runner with h264_videotoolbox (faster, ~3x,
    *  but consumes more GH quota). Persisted in localStorage. */
   runner: 'linux' | 'mac';
+  /** Proxy route for download traffic. */
+  proxy_mode: 'oracle-australia' | 'cloudflare-warp' | 'disabled';
   /** When true, the runner uses the cookies.txt bundled (encrypted) in
    *  the repo. Most videos work without; only required for some that
    *  trigger YouTube's bot wall. */
   use_cookies: boolean;
-  /** Proxy route for download traffic. Cloudflare WARP is a placeholder. */
-  proxy_mode: 'oracle-australia' | 'cloudflare-warp' | 'disabled';
 }
 
 export interface ApiError {

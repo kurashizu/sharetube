@@ -56,11 +56,12 @@ html, body {
   margin: 0; padding: 0;
   background: var(--bg);
   color: var(--fg);
-  font-family: var(--font-sans);
   font-size: var(--fs-base);
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  font-feature-settings: "ss01", "ss02", "tnum";
+  font-variant-numeric: tabular-nums;
 }
 
 body {
@@ -205,7 +206,6 @@ main {
 }
 .job-head .grow, .share-head .grow { flex: 1 1 auto; }
 .job-head .eta, .share-head .eta {
-  font-family: var(--font-mono); font-size: var(--fs-sm); color: var(--dim);
 }
 
 .dot {
@@ -230,7 +230,6 @@ main {
 .state {
   display: inline-flex; align-items: center;
   height: 22px; padding: 0 10px;
-  font-family: var(--font-mono); font-size: 11px; font-weight: 700;
   letter-spacing: .08em; text-transform: uppercase;
   border-radius: 999px;
   border: 1px solid var(--rule-2);
@@ -280,7 +279,6 @@ main {
 .legend {
   display: grid; grid-template-columns: repeat(3, 1fr);
   gap: var(--pad-inner);
-  font-family: var(--font-mono); font-size: var(--fs-sm);
 }
 .legend .col { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .legend .k {
@@ -292,7 +290,6 @@ main {
 
 /* pending / error / stopping notes */
 .note {
-  font-family: var(--font-mono); font-size: var(--fs-sm);
   color: var(--dim); padding: 10px 12px;
   background: var(--bg-2); border: 1px solid var(--rule);
   border-radius: 10px;
@@ -358,12 +355,10 @@ main {
   padding: 12px var(--pad-card);
   border-bottom: 1px solid var(--rule);
   background: var(--bg-2);
-  font-family: var(--font-mono); font-size: 11.5px; font-weight: 700;
   letter-spacing: .14em; text-transform: uppercase; color: var(--dim);
 }
 .log-body {
   padding: 12px var(--pad-card);
-  font-family: var(--font-mono); font-size: 12.5px; line-height: 1.6;
   color: var(--fg-2);
   max-height: 320px; overflow-y: auto;
 }
@@ -397,7 +392,6 @@ main {
   padding: 12px 14px; border-bottom: 1px solid var(--rule);
 }
 .rail-head .title {
-  font-family: var(--font-mono); font-size: 11.5px; font-weight: 700;
   letter-spacing: .14em; text-transform: uppercase; color: var(--dim);
 }
 .rail-head .count {
@@ -412,7 +406,6 @@ main {
 }
 .rail-tab {
   flex: 1; padding: 7px 0;
-  font-family: var(--font-mono); font-size: 11.5px; font-weight: 700;
   letter-spacing: .12em; text-transform: uppercase;
   color: var(--dim); background: transparent;
   border: 1px solid var(--rule-2); border-radius: 8px;
@@ -443,7 +436,6 @@ main {
 .rail-body::-webkit-scrollbar-thumb { background: var(--rule-2); border-radius: 4px; }
 
 .rail-group {
-  font-family: var(--font-mono);
   font-size: 10.5px; font-weight: 700;
   letter-spacing: .14em; text-transform: uppercase;
   color: var(--mute); padding: 12px 6px 4px;
@@ -460,12 +452,10 @@ main {
 
 .rail-item .dot { width: 8px; height: 8px; }
 .rail-item .name {
-  font-family: var(--font-mono);
   color: var(--fg-2);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0;
 }
 .rail-item .meta {
-  font-family: var(--font-mono); font-size: 11px; color: var(--mute);
 }
 .rail-item .actions { display: flex; gap: 4px; align-items: center; flex: 0 0 auto; }
 .rail-item .ic-btn {
@@ -474,7 +464,6 @@ main {
   border-radius: 6px;
   background: var(--bg-2); border: 1px solid var(--rule-2);
   color: var(--fg-2); cursor: pointer;
-  font-family: var(--font-mono); font-size: 11px; font-weight: 700;
   text-transform: uppercase;
 }
 .rail-item .ic-btn:hover { background: var(--bg-3); color: var(--fg); }
@@ -490,7 +479,6 @@ main {
 .rail-foot {
   display: flex; align-items: center; justify-content: space-between;
   padding: 8px 14px; border-top: 1px solid var(--rule);
-  font-family: var(--font-mono); font-size: 11.5px; color: var(--dim);
 }
 .rail-foot .page-info { font-variant-numeric: tabular-nums; }
 .rail-foot .page-btn {
@@ -504,7 +492,6 @@ main {
 .rail-foot .clear {
   color: var(--mute);
   background: transparent; border: none; cursor: pointer;
-  font-family: var(--font-mono); font-size: 11px; font-weight: 700;
   letter-spacing: .12em; text-transform: uppercase;
 }
 .rail-foot .clear:hover { color: var(--err); }
@@ -514,7 +501,6 @@ main {
   font-size: var(--fs-sm); color: var(--mute);
   background: var(--bg-2); border: 1px solid var(--rule);
   border-radius: 10px; padding: 10px 12px; margin-top: 8px;
-  font-family: var(--font-mono);
 }
 
 /* -- modals --------------------------------------------------------- */
@@ -583,7 +569,6 @@ main {
   background: var(--bg-2);
   border: 1px solid var(--rule-2);
   border-radius: 10px;
-  font-family: var(--font-mono); font-size: 13px;
   color: var(--fg);
   width: 100%;
   appearance: none; -webkit-appearance: none;
@@ -604,7 +589,6 @@ main {
 .ttl-row { display: flex; align-items: center; gap: 8px; }
 .ttl-row .field-input { width: 8rem; flex: 0 0 auto; }
 .ttl-row .ttl-readout {
-  font-family: var(--font-mono); font-size: 12.5px;
   color: var(--dim); flex: 0 0 auto;
 }
 
@@ -695,7 +679,6 @@ main {
   display: inline-flex; align-items: center; justify-content: center;
   min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px;
   background: #0a0c0f; color: var(--accent);
-  font-family: var(--font-mono); font-size: 11px; font-weight: 700;
 }
 
 /* keep-alive for legacy class names that older components still emit;

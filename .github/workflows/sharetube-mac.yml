@@ -107,29 +107,24 @@ jobs:
           restore-keys: |
             ytdlp-mac-
 
-      # Everything else (ffmpeg-full copy + omni-client + fonts) —
-      # frozen; bump the -4 suffix manually when you want to refresh
-      # them. NOTE: paths are enumerated (NOT ~/.local/tools) so the
-      # frozen cache never contains yt-dlp — that would shadow the
-      # separate version-checked yt-dlp cache above.
-      #
-      # Why ~/.local/tools/ffmpeg-full/? We copy the whole brew cellar
-      # subtree into ~/.local/tools/ on install so that subsequent runs
-      # don't need the brew cellar at all — the cache restore puts the
-      # copy back, and the symlink below points into it. Without this
-      # step, a warm cache hit would still need `brew install
-      # ffmpeg-full` because the cellar under /opt/homebrew is outside
-      # the cache path and Homebrew doesn't persist it.
+      # Everything else (Homebrew ffmpeg-full + omni-client + fonts) —
+      # frozen; bump the -5 suffix manually when you want to refresh
+      # them. The Homebrew Cellar and opt symlinks are cached at their
+      # original absolute paths because macOS dylibs inside ffmpeg-full
+      # refer to /opt/homebrew/Cellar/... by absolute install name.
+      # The frozen cache never contains yt-dlp — that has its own
+      # version-checked cache above.
       - name: Cache frozen tools
         id: fixed
         uses: actions/cache@v6
         with:
           path: |
-            ~/.local/tools/ffmpeg-full
+            /opt/homebrew/Cellar
+            /opt/homebrew/opt
             ~/.local/tools/omni-client
             ~/Library/Caches/Homebrew
             ~/.local/share/fonts
-          key: macos26-fixed-denov${{ vars.DENO_VER }}-omni-${{ vars.OMNIPROXY_VER }}-ffmpeg-brew-4
+          key: macos26-fixed-denov${{ vars.DENO_VER }}-omni-${{ vars.OMNIPROXY_VER }}-ffmpeg-brew-5
 
       - name: Install yt-dlp
         run: |
@@ -150,11 +145,9 @@ jobs:
 
       # ffmpeg-full + omni-client + font. Skipped on warm cache.
       # brew install ffmpeg-full is ~20 s even when every bottle is
-      # already on disk — the formula needs to be re-read, dependencies
-      # re-enumerated, the install plan rebuilt — so guarding the step
-      # is the actual win. We then copy the resulting Cellar subtree
-      # into ~/.local/tools/ffmpeg-full so the cache can carry it
-      # without needing Homebrew's prefix on subsequent runs.
+      # already on disk, so the cache-hit guard is the actual win.
+      # The cold install populates /opt/homebrew/Cellar and /opt/homebrew/opt;
+      # actions/cache then restores those exact paths on the next runner.
       - name: Install frozen tools (brew)
         if: steps.fixed.outputs.cache-hit != 'true'
         env:
@@ -164,27 +157,9 @@ jobs:
           set -euo pipefail
           mkdir -p ~/.local/tools ~/.local/share/fonts
 
-          # ffmpeg-full: the Homebrew image's stock ffmpeg is stripped
-          # (no VideoToolbox) and the ffmpeg-full formula is the one
-          # that actually enables --enable-libfreetype (needed by our
-          # drawtext watermark).
+          # ffmpeg-full: the stock formula lacks VideoToolbox and
+          # libfreetype, both required by the Mac runner.
           brew install ffmpeg-full
-
-          # Copy the Cellar subtree into ~/.local/tools so the cache
-          # can carry it on subsequent runs. Symlinks inside the Cellar
-          # (libavcodec.dylib → ../Cellar/.../lib/libavcodec.dylib)
-          # resolve through the same relative paths so they still work
-          # from the new location.
-          rm -rf ~/.local/tools/ffmpeg-full
-          mkdir -p ~/.local/tools/ffmpeg-full
-          # `brew --prefix ffmpeg-full` is /opt/homebrew/opt/ffmpeg-full,
-          # itself a symlink into the Cellar. On macOS, `cp -R` of that
-          # symlink can preserve only the link instead of copying its
-          # contents. The trailing `/.` forces a real directory copy.
-          FFMPEG_PREFIX=$(brew --prefix ffmpeg-full)
-          cp -R "${FFMPEG_PREFIX}/." ~/.local/tools/ffmpeg-full/
-          test -x ~/.local/tools/ffmpeg-full/bin/ffmpeg
-          test -x ~/.local/tools/ffmpeg-full/bin/ffprobe
 
           # OmniProxy client: local SOCKS5 → WebSocket → Oracle exit IP.
           curl -fsSL --max-time 120 --retry 2 -o /tmp/omni.tar.xz \
@@ -198,21 +173,20 @@ jobs:
           curl -fsSL --max-time 120 --retry 2 -o ~/.local/share/fonts/NotoSansCJK-Regular.ttc \
             "https://github.com/notofonts/noto-cjk/raw/main/Sans/OTC/NotoSansCJK-Regular.ttc"
 
-      # Always relink the convenience names into PATH and verify
-      # VideoToolbox + drawtext are present. Idempotent on warm cache
-      # (symlinks already point at the restored Cellar copy) and
-      # creates them fresh on a cold cache.
+      # Always link the convenience names into PATH and verify the
+      # restored Homebrew installation. The absolute Homebrew paths
+      # are intentional: ffmpeg's dylib install names use them.
       - name: Link frozen tools into PATH
         run: |
           set -euo pipefail
           mkdir -p ~/.local/tools ~/.local/share/fonts
-          ln -sf ~/.local/tools/ffmpeg-full/bin/ffmpeg ~/.local/tools/ffmpeg
-          ln -sf ~/.local/tools/ffmpeg-full/bin/ffprobe ~/.local/tools/ffprobe
-          test -x ~/.local/tools/ffmpeg
-          test -x ~/.local/tools/ffprobe
-          ~/.local/tools/ffmpeg -encoders | grep h264_videotoolbox
-          ~/.local/tools/ffmpeg -filters | grep drawtext
-          ls -lh ~/.local/tools/ffmpeg ~/.local/tools/yt-dlp ~/.local/tools/omni-client ~/.local/share/fonts/NotoSansCJK-Regular.ttc
+          ln -sf /opt/homebrew/opt/ffmpeg-full/bin/ffmpeg ~/.local/tools/ffmpeg
+          ln -sf /opt/homebrew/opt/ffmpeg-full/bin/ffprobe ~/.local/tools/ffprobe
+          test -x /opt/homebrew/opt/ffmpeg-full/bin/ffmpeg
+          test -x /opt/homebrew/opt/ffmpeg-full/bin/ffprobe
+          /opt/homebrew/opt/ffmpeg-full/bin/ffmpeg -encoders | grep h264_videotoolbox
+          /opt/homebrew/opt/ffmpeg-full/bin/ffmpeg -filters | grep drawtext
+          ls -lh ~/.local/tools/ffmpeg ~/.local/tools/ffprobe ~/.local/tools/yt-dlp ~/.local/tools/omni-client ~/.local/share/fonts/NotoSansCJK-Regular.ttc
 
       - name: Add tools to PATH
         run: echo "$HOME/.local/tools" >> "$GITHUB_PATH"

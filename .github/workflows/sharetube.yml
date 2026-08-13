@@ -131,7 +131,7 @@ jobs:
           # file is decrypted only in the tunnel step below.
           curl -fsSL --max-time 120 --retry 2 -o ~/.local/tools/wgcf \
             "https://github.com/ViRb3/wgcf/releases/download/v2.2.32/wgcf_2.2.32_linux_amd64"
-          echo "2ff97f2201972ce582a424455d50a3719a380eef0cd1f3144f7779348e122a2c  ~/.local/tools/wgcf" | sha256sum -c -
+          echo "2ff97f2201972ce582a424455d50a3719a380eef0cd1f3144f7779348e122a2c  $HOME/.local/tools/wgcf" | sha256sum -c -
           chmod +x ~/.local/tools/wgcf
           # WireGuard userspace tools, built from pinned upstream source.
           curl -fsSL --max-time 120 --retry 2 -o /tmp/wireguard-tools.tar.xz \

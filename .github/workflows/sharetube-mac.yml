@@ -166,7 +166,7 @@ jobs:
           if [ ! -x ~/.local/tools/wgcf ]; then
             curl -fsSL --max-time 120 --retry 2 -o ~/.local/tools/wgcf \
               "https://github.com/ViRb3/wgcf/releases/download/v2.2.32/wgcf_2.2.32_darwin_arm64"
-            echo "6c19e27eefade597f3778f5fdcbd0a5f5297e9ff343cbb44cc206e21d83d48fb  ~/.local/tools/wgcf" | shasum -a 256 -c -
+            echo "6c19e27eefade597f3778f5fdcbd0a5f5297e9ff343cbb44cc206e21d83d48fb  $HOME/.local/tools/wgcf" | shasum -a 256 -c -
             chmod +x ~/.local/tools/wgcf
           fi
 

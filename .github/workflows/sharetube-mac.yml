@@ -106,7 +106,7 @@ jobs:
             ~/.local/tools/wireguard-go
             ~/.local/tools/omni-client
             ~/.local/share/fonts
-          key: macos26-fixed-deno${{ vars.DENO_VER }}-omni-${{ vars.OMNIPROXY_VER }}-ffmpeg-arm64-8.1-warp-v2.2.32-wg-1
+          key: macos26-fixed-deno${{ vars.DENO_VER }}-omni-${{ vars.OMNIPROXY_VER }}-ffmpeg-arm64-8.1-warp-v2.2.32-wgbottle-1
 
       - name: Install yt-dlp
         run: |
@@ -170,30 +170,32 @@ jobs:
             chmod +x ~/.local/tools/wgcf
           fi
 
-          # WireGuard userspace tools, built from pinned upstream sources.
-          if [ ! -x ~/.local/tools/wg ] || [ ! -x ~/.local/tools/wg-quick ] || [ ! -x ~/.local/tools/wireguard-go ]; then
-            curl -fsSL --max-time 120 --retry 2 -o /tmp/go.tar.gz \
-              "https://go.dev/dl/go1.26.5.darwin-arm64.tar.gz"
-            echo "efb87ff28af9a188d0536ef5d42e63dd52ba8263cd7344a993cc48dd11dedb6a  /tmp/go.tar.gz" | shasum -a 256 -c -
-            rm -rf /tmp/go
-            tar xzf /tmp/go.tar.gz -C /tmp
-            export PATH="/tmp/go/bin:$PATH"
-            curl -fsSL --max-time 120 --retry 2 -o /tmp/wireguard-tools.tar.xz \
-              "https://git.zx2c4.com/wireguard-tools/snapshot/wireguard-tools-1.0.20260223.tar.xz"
-            echo "af459827b80bfd31b83b08077f4b5843acb7d18ad9a33a2ef532d3090f291fbf  /tmp/wireguard-tools.tar.xz" | shasum -a 256 -c -
-            curl -fsSL --max-time 120 --retry 2 -o /tmp/wireguard-go.tar.xz \
-              "https://git.zx2c4.com/wireguard-go/snapshot/wireguard-go-0.0.20250522.tar.xz"
-            echo "c7eeffb13e5eb43b93e54a21d78dd71414771af9e07112da5275690493695c9c  /tmp/wireguard-go.tar.xz" | shasum -a 256 -c -
-            rm -rf /tmp/wireguard-tools-1.0.20260223 /tmp/wireguard-go-0.0.20250522
-            tar xJf /tmp/wireguard-tools.tar.xz -C /tmp
-            tar xJf /tmp/wireguard-go.tar.xz -C /tmp
-            make -C /tmp/wireguard-tools-1.0.20260223/src -j2
-            make -C /tmp/wireguard-go-0.0.20250522 -j2
-            install -m 755 /tmp/wireguard-tools-1.0.20260223/src/wg ~/.local/tools/wg
-            install -m 755 /tmp/wireguard-tools-1.0.20260223/src/wg-quick/darwin.bash ~/.local/tools/wg-quick
-            install -m 755 /tmp/wireguard-go-0.0.20250522/wireguard-go ~/.local/tools/wireguard-go
-            rm -rf /tmp/go /tmp/go.tar.gz /tmp/wireguard-tools-1.0.20260223 /tmp/wireguard-go-0.0.20250522 /tmp/wireguard-tools.tar.xz /tmp/wireguard-go.tar.xz
-          fi
+          # WireGuard tools: extract prebuilt arm64 binaries from
+          # Homebrew's public bottle registry. No package manager or build.
+          WG_TOKEN=$(curl -fsSL --max-time 30 \
+            "https://ghcr.io/token?scope=repository:homebrew/core/wireguard-tools:pull" \
+            | python3 -c 'import json,sys; print(json.load(sys.stdin)["token"])')
+          WG_BLOB="0dacbfadaa9a5ed82a409138304c28b34cd13509f10ae25b788d1e72f7250281"
+          curl -fsSL --max-time 120 --retry 2 -H "Authorization: Bearer $WG_TOKEN" \
+            -o /tmp/wireguard-tools.bottle.tar.gz \
+            "https://ghcr.io/v2/homebrew/core/wireguard-tools/blobs/sha256:$WG_BLOB"
+          echo "$WG_BLOB  /tmp/wireguard-tools.bottle.tar.gz" | shasum -a 256 -c -
+          tar xzf /tmp/wireguard-tools.bottle.tar.gz -C /tmp
+          install -m 755 /tmp/wireguard-tools/1.0.20260223/bin/wg ~/.local/tools/wg
+          install -m 755 /tmp/wireguard-tools/1.0.20260223/bin/wg-quick ~/.local/tools/wg-quick
+          rm -rf /tmp/wireguard-tools /tmp/wireguard-tools.bottle.tar.gz
+
+          WGGO_TOKEN=$(curl -fsSL --max-time 30 \
+            "https://ghcr.io/token?scope=repository:homebrew/core/wireguard-go:pull" \
+            | python3 -c 'import json,sys; print(json.load(sys.stdin)["token"])')
+          WGGO_BLOB="2ae096c9cefaf2ddf1d4c1eebf19ed71a02adf9c9b020b538f6216244fe3a2fa"
+          curl -fsSL --max-time 120 --retry 2 -H "Authorization: Bearer $WGGO_TOKEN" \
+            -o /tmp/wireguard-go.bottle.tar.gz \
+            "https://ghcr.io/v2/homebrew/core/wireguard-go/blobs/sha256:$WGGO_BLOB"
+          echo "$WGGO_BLOB  /tmp/wireguard-go.bottle.tar.gz" | shasum -a 256 -c -
+          tar xzf /tmp/wireguard-go.bottle.tar.gz -C /tmp
+          install -m 755 /tmp/wireguard-go/0.0.20250522/bin/wireguard-go ~/.local/tools/wireguard-go
+          rm -rf /tmp/wireguard-go /tmp/wireguard-go.bottle.tar.gz
 
           # OmniProxy client and font are ordinary cached files. Only
           # fetch them when the cache did not restore them.

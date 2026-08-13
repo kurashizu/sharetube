@@ -80,7 +80,7 @@ jobs:
             ~/.local/tools/wg
             ~/.local/tools/wg-quick
             ~/.local/share/fonts
-          key: tools-fixed-${{ runner.os }}-deno-${{ vars.DENO_VER }}-omni-${{ vars.OMNIPROXY_VER }}-ffmpeg-master-warp-v2.2.32-wg-1
+          key: tools-fixed-${{ runner.os }}-deno-${{ vars.DENO_VER }}-omni-${{ vars.OMNIPROXY_VER }}-ffmpeg-master-warp-v2.2.32-wgbottle-1
 
       - name: Install yt-dlp
         run: |
@@ -133,15 +133,20 @@ jobs:
             "https://github.com/ViRb3/wgcf/releases/download/v2.2.32/wgcf_2.2.32_linux_amd64"
           echo "2ff97f2201972ce582a424455d50a3719a380eef0cd1f3144f7779348e122a2c  $HOME/.local/tools/wgcf" | sha256sum -c -
           chmod +x ~/.local/tools/wgcf
-          # WireGuard userspace tools, built from pinned upstream source.
-          curl -fsSL --max-time 120 --retry 2 -o /tmp/wireguard-tools.tar.xz \
-            "https://git.zx2c4.com/wireguard-tools/snapshot/wireguard-tools-1.0.20260223.tar.xz"
-          echo "af459827b80bfd31b83b08077f4b5843acb7d18ad9a33a2ef532d3090f291fbf  /tmp/wireguard-tools.tar.xz" | sha256sum -c -
-          tar xJf /tmp/wireguard-tools.tar.xz -C /tmp
-          make -C /tmp/wireguard-tools-1.0.20260223/src -j2
-          install -m 755 /tmp/wireguard-tools-1.0.20260223/src/wg ~/.local/tools/wg
-          install -m 755 /tmp/wireguard-tools-1.0.20260223/src/wg-quick/linux.bash ~/.local/tools/wg-quick
-          rm -rf /tmp/wireguard-tools-1.0.20260223 /tmp/wireguard-tools.tar.xz
+          # WireGuard tools: extract prebuilt x86_64 Linux binaries from
+          # Homebrew's public bottle registry. No package manager or build.
+          WG_BLOB="0af7756dee0ec6ea3053e5b055259b66b45a6a67a80862a8d280028be5c6aa54"
+          WG_TOKEN=$(curl -fsSL --max-time 30 \
+            "https://ghcr.io/token?scope=repository:homebrew/core/wireguard-tools:pull" \
+            | python3 -c 'import json,sys; print(json.load(sys.stdin)["token"])')
+          curl -fsSL --max-time 120 --retry 2 -H "Authorization: Bearer $WG_TOKEN" \
+            -o /tmp/wireguard-tools.bottle.tar.gz \
+            "https://ghcr.io/v2/homebrew/core/wireguard-tools/blobs/sha256:$WG_BLOB"
+          echo "$WG_BLOB  /tmp/wireguard-tools.bottle.tar.gz" | sha256sum -c -
+          tar xzf /tmp/wireguard-tools.bottle.tar.gz -C /tmp
+          install -m 755 /tmp/wireguard-tools/1.0.20260223/bin/wg ~/.local/tools/wg
+          install -m 755 /tmp/wireguard-tools/1.0.20260223/bin/wg-quick ~/.local/tools/wg-quick
+          rm -rf /tmp/wireguard-tools /tmp/wireguard-tools.bottle.tar.gz
           ~/.local/tools/ffmpeg -version | head -1
           ~/.local/tools/omni-client --version
           ~/.local/tools/deno --version | head -1

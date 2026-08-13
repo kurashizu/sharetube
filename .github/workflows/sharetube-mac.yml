@@ -206,10 +206,19 @@ jobs:
           # created the D1 row; for manual workflow_dispatch tests we
           # POST /api/jobs ourselves so the runner has a real job_id
           # and its progress updates land in the backend instead of
-          # being silently dropped as 404s.
+          # being silently dropped as 404s. We also stamp
+          # runner=mac into the config so the Worker's dispatch
+          # payload carries the right tag — otherwise sharetube.yml
+          # sees no runner field, defaults to linux, and races us.
+          STAMPED=$(python3 -c "
+          import json, sys
+          cfg = json.loads('''${CONFIG_JSON}''')
+          cfg['runner'] = 'mac'
+          print(json.dumps(cfg))
+          ")
           RESP=$(curl -sS -X POST "${WORKER_URL}/api/jobs" \
             -H 'Content-Type: application/json' \
-            -d "{\"url\":\"${URL}\",\"config\":${CONFIG_JSON}}")
+            -d "{\"url\":\"${URL}\",\"config\":${STAMPED}}")
           echo "create response: $RESP"
           JOB_ID=$(echo "$RESP" | python3 -c "import json,sys; print(json.load(sys.stdin)['id'])")
           echo "JOB_ID=${JOB_ID}"

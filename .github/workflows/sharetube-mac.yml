@@ -82,12 +82,16 @@ jobs:
           mkdir -p ~/.local/tools ~/.local/share/fonts
 
           # ffmpeg + ffprobe from Homebrew (the macOS image ships Apple's
-          # stripped ffmpeg that lacks VideoToolbox). Symlink into
-          # ~/.local/tools so the runner picks them up via PATH.
-          brew install ffmpeg
-          ln -sf "$(brew --prefix ffmpeg)/bin/ffmpeg" ~/.local/tools/ffmpeg
-          ln -sf "$(brew --prefix ffmpeg)/bin/ffprobe" ~/.local/tools/ffprobe
+          # stripped ffmpeg that lacks VideoToolbox). Use the `ffmpeg-full`
+          # formula — the regular `ffmpeg` is built without libfreetype,
+          # which means the drawtext filter we need for the watermark
+          # isn't available. Symlink into ~/.local/tools so the runner
+          # picks them up via PATH.
+          brew install ffmpeg-full
+          ln -sf "$(brew --prefix ffmpeg-full)/bin/ffmpeg" ~/.local/tools/ffmpeg
+          ln -sf "$(brew --prefix ffmpeg-full)/bin/ffprobe" ~/.local/tools/ffprobe
           ~/.local/tools/ffmpeg -encoders | grep h264_videotoolbox
+          ~/.local/tools/ffmpeg -filters | grep drawtext
 
           # yt-dlp universal Python zipapp (cross-platform).
           curl -fsSL --max-time 120 --retry 2 -o ~/.local/tools/yt-dlp \

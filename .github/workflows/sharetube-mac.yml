@@ -93,23 +93,28 @@ jobs:
           ~/.local/tools/ffmpeg -encoders | grep h264_videotoolbox
           ~/.local/tools/ffmpeg -filters | grep drawtext
 
-          # yt-dlp universal Python zipapp (cross-platform).
-          curl -fsSL --max-time 120 --retry 2 -o ~/.local/tools/yt-dlp \
-            "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp"
-          chmod +x ~/.local/tools/yt-dlp
+          # yt-dlp + omni-client + font are downloaded only when the
+          # frozen-tools cache missed; on cache hits they were already
+          # restored by the previous `actions/cache` step.
+          if [ ! -x ~/.local/tools/yt-dlp ]; then
+            curl -fsSL --max-time 120 --retry 2 -o ~/.local/tools/yt-dlp \
+              "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp"
+            chmod +x ~/.local/tools/yt-dlp
+          fi
           ~/.local/tools/yt-dlp --version
 
-          # OmniProxy macOS arm64 client.
-          curl -fsSL --max-time 120 --retry 2 -o /tmp/omni.tar.xz \
-            "https://github.com/kurashizu/OmniProxy/releases/download/${{ vars.OMNIPROXY_VER }}/omni-proxy-macos-aarch64.tar.xz"
-          tar xJf /tmp/omni.tar.xz -C /tmp
-          mv /tmp/dist/client ~/.local/tools/omni-client
-          chmod +x ~/.local/tools/omni-client
+          if [ ! -x ~/.local/tools/omni-client ]; then
+            curl -fsSL --max-time 120 --retry 2 -o /tmp/omni.tar.xz \
+              "https://github.com/kurashizu/OmniProxy/releases/download/${{ vars.OMNIPROXY_VER }}/omni-proxy-macos-aarch64.tar.xz"
+            tar xJf /tmp/omni.tar.xz -C /tmp
+            mv /tmp/dist/client ~/.local/tools/omni-client
+            chmod +x ~/.local/tools/omni-client
+          fi
 
-          # NotoSansCJK-Regular.ttc from the notofonts/noto-cjk mirror.
-          # Used by ffmpeg's drawtext filter for the watermark.
-          curl -fsSL --max-time 120 --retry 2 -o ~/.local/share/fonts/NotoSansCJK-Regular.ttc \
-            "https://github.com/notofonts/noto-cjk/raw/main/Sans/OTC/NotoSansCJK-Regular.ttc"
+          if [ ! -f ~/.local/share/fonts/NotoSansCJK-Regular.ttc ]; then
+            curl -fsSL --max-time 120 --retry 2 -o ~/.local/share/fonts/NotoSansCJK-Regular.ttc \
+              "https://github.com/notofonts/noto-cjk/raw/main/Sans/OTC/NotoSansCJK-Regular.ttc"
+          fi
 
           ls -lh ~/.local/tools/ffmpeg ~/.local/tools/yt-dlp ~/.local/tools/omni-client ~/.local/share/fonts/NotoSansCJK-Regular.ttc
 

@@ -1,0 +1,195 @@
+name: sharetube-mac
+
+# Apple Silicon runner that uses VideoToolbox H.264 hardware encoding
+# instead of libx264. Triggered by the same `repository_dispatch`
+# `sharetube-job` event as sharetube.yml, but ONLY when
+# `client_payload.runner == 'mac'` — the Worker picks the runner
+# target based on the user's setting. Default (no `runner` field,
+# or `runner == 'linux'`) goes to the Linux workflow instead.
+#
+# Also accepts workflow_dispatch so this can be exercised manually
+# for end-to-end testing without going through the Worker.
+#
+# Tooling differs from sharetube.yml because the macOS runner image
+# doesn't ship our frozen Linux binaries: ffmpeg comes from brew
+# (homebrew builds it with `--enable-videotoolbox`), yt-dlp as the
+# universal Python zipapp, deno as the aarch64-apple-darwin zip,
+# omni-client as the macOS tarball, fonts as NotoSansCJK-Regular.ttc
+# pulled from the notofonts/noto-cjk GitHub mirror.
+
+on:
+  repository_dispatch:
+    types: [sharetube-job]
+  workflow_dispatch:
+    inputs:
+      job_id:
+        description: "Job ID (manual re-runs only)"
+        required: false
+      url:
+        description: "Source URL (manual runs without job_id)"
+        required: false
+        default: "https://youtu.be/7yh64THGjCE"
+      config_json:
+        description: "Per-job config JSON (manual runs)"
+        required: false
+        default: '{"max_resolution":"720p","output_resolution":"720p","video_bitrate":"600k","audio_bitrate":"128k","ttl_seconds":3600,"watermark_enabled":true,"watermark_line1":"sharetube.krsz.in","watermark_line2":"{title} · {resolution} · {duration}","watermark_font_size":28,"encoder_preset":"fast","use_cookies":true}'
+
+# Skip when the dispatch payload isn't aimed at the Mac runner. The
+# default (no `runner` key) and `runner == 'linux'` go to sharetube.yml.
+concurrency:
+  group: sharetube-mac-${{ github.event.client_payload.job_id || inputs.job_id }}
+  cancel-in-progress: false
+
+jobs:
+  run:
+    if: github.event_name == 'workflow_dispatch' || github.event.client_payload.runner == 'mac'
+    runs-on: macos-26
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+
+      # ── Tools ────────────────────────────────────────────────────────
+
+      - name: Install deno (brew)
+        run: brew install deno
+      - name: Cache frozen tools (ffmpeg, yt-dlp, omni-client, fonts)
+        id: fixed
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.local/tools/ffmpeg
+            ~/.local/tools/ffprobe
+            ~/.local/tools/yt-dlp
+            ~/.local/tools/omni-client
+            ~/.local/share/fonts
+          key: macos26-tools-denov${{ vars.DENO_VER }}-omni-${{ vars.OMNIPROXY_VER }}-ffmpeg-brew-1
+
+      - name: Install frozen tools
+        if: steps.fixed.outputs.cache-hit != 'true'
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.local/tools ~/.local/share/fonts
+
+          # ffmpeg + ffprobe from Homebrew (the macOS image ships Apple's
+          # stripped ffmpeg that lacks VideoToolbox). Symlink into
+          # ~/.local/tools so the runner picks them up via PATH.
+          brew install ffmpeg
+          ln -sf "$(brew --prefix ffmpeg)/bin/ffmpeg" ~/.local/tools/ffmpeg
+          ln -sf "$(brew --prefix ffmpeg)/bin/ffprobe" ~/.local/tools/ffprobe
+          ~/.local/tools/ffmpeg -encoders | grep h264_videotoolbox
+
+          # yt-dlp universal Python zipapp (cross-platform).
+          curl -fsSL --max-time 120 --retry 2 -o ~/.local/tools/yt-dlp \
+            "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp"
+          chmod +x ~/.local/tools/yt-dlp
+          ~/.local/tools/yt-dlp --version
+
+          # OmniProxy macOS arm64 client.
+          curl -fsSL --max-time 120 --retry 2 -o /tmp/omni.tar.xz \
+            "https://github.com/kurashizu/OmniProxy/releases/download/${{ vars.OMNIPROXY_VER }}/omni-proxy-macos-aarch64.tar.xz"
+          tar xJf /tmp/omni.tar.xz -C /tmp
+          mv /tmp/dist/client ~/.local/tools/omni-client
+          chmod +x ~/.local/tools/omni-client
+
+          # NotoSansCJK-Regular.ttc from the notofonts/noto-cjk mirror.
+          # Used by ffmpeg's drawtext filter for the watermark.
+          curl -fsSL --max-time 120 --retry 2 -o ~/.local/share/fonts/NotoSansCJK-Regular.ttc \
+            "https://github.com/notofonts/noto-cjk/raw/main/Sans/OTC/NotoSansCJK-Regular.ttc"
+
+          ls -lh ~/.local/tools/ffmpeg ~/.local/tools/yt-dlp ~/.local/tools/omni-client ~/.local/share/fonts/NotoSansCJK-Regular.ttc
+
+      - name: Add tools to PATH
+        run: echo "$HOME/.local/tools" >> "$GITHUB_PATH"
+
+      # yt-dlp[default] provides the EJS challenge solver scripts; the
+      # yt-dlp zipapp we downloaded imports them from the package.
+      - name: Install yt-dlp Python deps
+        run: python3 -m pip install --user --break-system-packages --quiet 'yt-dlp[default]'
+
+      # ── Cookies decryption ─────────────────────────────────────────
+
+      - name: Decrypt cookies.txt
+        env:
+          COOKIES_PASS: ${{ secrets.COOKIES_PASS }}
+        run: |
+          set -euo pipefail
+          if [ -z "${COOKIES_PASS:-}" ]; then
+            echo "::warning::COOKIES_PASS secret empty; runner will skip --cookies"
+            exit 0
+          fi
+          if [ ! -f secrets/cookies.txt.enc ]; then
+            echo "::warning::secrets/cookies.txt.enc missing; runner will skip --cookies"
+            exit 0
+          fi
+          mkdir -p ~/.local/share/sharetube
+          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 \
+            -in secrets/cookies.txt.enc \
+            -out ~/.local/share/sharetube/cookies.txt \
+            -pass env:COOKIES_PASS
+          # never log cookie contents — public repo, public Actions log
+          ls -la ~/.local/share/sharetube/cookies.txt
+
+      # ── Tunnel ──────────────────────────────────────────────────────
+      # Same SOCKS5 → WebSocket → Oracle exit-IP setup as sharetube.yml.
+      # Without it, the macos-26 datacenter IP hits the same YouTube
+      # bot wall as the Linux datacenter IP.
+      - name: Start OmniProxy tunnel
+        env:
+          OMNIPROXY_SERVER: ${{ vars.OMNIPROXY_SERVER }}
+          PROXY_TOKEN: ${{ secrets.PROXY_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "${OMNIPROXY_SERVER:-}" ] || [ -z "${PROXY_TOKEN:-}" ]; then
+            echo "::warning::OMNIPROXY_SERVER/PROXY_TOKEN not set; running without tunnel"
+            exit 0
+          fi
+          cat > /tmp/omniproxy.yml <<EOF
+          addr: 127.0.0.1
+          port: 1080
+          token: "${PROXY_TOKEN}"
+          server: "wss://${OMNIPROXY_SERVER}"
+          EOF
+          nohup ~/.local/tools/omni-client --config /tmp/omniproxy.yml \
+            > /tmp/omniproxy.log 2>&1 &
+          for i in $(seq 1 30); do
+            if IP=$(curl -s --socks5-hostname 127.0.0.1:1080 https://api.ipify.org 2>/dev/null); then
+              echo "tunnel up, exit IP: ${IP}"
+              echo "PROXY_URL=socks5://127.0.0.1:1080" >> "$GITHUB_ENV"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "::error::OmniProxy tunnel failed to come up"
+          cat /tmp/omniproxy.log
+          exit 1
+
+      # ── Run ────────────────────────────────────────────────────────
+      - name: Run sharetube runner
+        env:
+          JOB_ID: ${{ github.event.client_payload.job_id || inputs.job_id }}
+          JOB_URL: ${{ github.event.client_payload.url || inputs.url }}
+          JOB_CONFIG_JSON: ${{ github.event.client_payload.config || inputs.config_json }}
+          BACKEND_URL: ${{ vars.WORKER_URL }}
+          INTERNAL_TOKEN: ${{ secrets.INTERNAL_TOKEN }}
+          COOKIES_PASS: ${{ secrets.COOKIES_PASS }}
+        run: |
+          set -euo pipefail
+          echo "JOB_ID=$JOB_ID"
+          echo "JOB_URL=$JOB_URL"
+          echo "BACKEND_URL=$BACKEND_URL"
+          echo "PROXY_URL=${PROXY_URL:-<none>}"
+          [ -n "$JOB_ID" ] && [ -n "$JOB_URL" ] || { echo "missing JOB_ID or JOB_URL"; exit 1; }
+          python -m runner
+
+      - name: Cleanup (kill tunnel + wipe decrypted cookies)
+        if: always()
+        run: |
+          pkill -f 'omni-client' || true
+          rm -f ~/.local/share/sharetube/cookies.txt

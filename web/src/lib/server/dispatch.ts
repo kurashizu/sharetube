@@ -48,7 +48,8 @@ async function ghDispatch(
   env: Env,
   jobId: string,
   url: string,
-  configJson: string
+  configJson: string,
+  runner: 'linux' | 'mac' = 'linux'
 ): Promise<boolean> {
   const repo = env.GH_REPO ?? 'kurashizu/sharetube';
   const token = env.GH_DISPATCH_TOKEN;
@@ -67,7 +68,7 @@ async function ghDispatch(
       },
       body: JSON.stringify({
         event_type: 'sharetube-job',
-        client_payload: { job_id: jobId, url, config: configJson }
+        client_payload: { job_id: jobId, url, config: configJson, runner }
       })
     });
     if (!r.ok && r.status !== 204) {
@@ -191,7 +192,16 @@ export async function dispatchPending(env: Env): Promise<number> {  // In-flight
         WHERE id = ? AND status = 'pending' AND dispatched = 0`
     ).bind(Math.floor(Date.now() / 1000), job.id).run();
     if ((claim.meta?.changes ?? 0) === 0) continue;
-    const ok = await ghDispatch(env, job.id, job.url, job.config_json);
+    // Read runner target from the per-job config; fall back to linux
+    // if absent (older jobs predating the toggle).
+    let runner: 'linux' | 'mac' = 'linux';
+    try {
+      const cfg = JSON.parse(job.config_json || '{}');
+      if (cfg.runner === 'mac') runner = 'mac';
+    } catch {
+      // malformed config_json — keep default linux
+    }
+    const ok = await ghDispatch(env, job.id, job.url, job.config_json, runner);
     if (ok) {
       dispatched += 1;
     } else {

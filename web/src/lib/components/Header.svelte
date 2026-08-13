@@ -42,7 +42,6 @@
       <circle cx="5.5" cy="12" r="1.4" fill="currentColor" />
     </svg>
     <span class="brand">ShareTube</span>
-    <span class="hint">unified</span>
   </div>
   <nav class="r">
     <span class="chip"><b>*</b> {cfg.runner}</span>

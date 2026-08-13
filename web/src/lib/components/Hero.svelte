@@ -119,5 +119,5 @@
       {submitting ? 'submitting' : 'run'}
     </button>
   </div>
-  <p class="hint">{hint || 'Enter to submit. Settings, runner, proxy, ttl are remembered.'}</p>
+  <p class="hint">{hint}</p>
 </section>

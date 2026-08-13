@@ -469,6 +469,14 @@ def transcode(
         # buffer might never reach D1. Dump the captured stderr here so
         # the runner's own stdout (visible in the GH Actions log) shows
         # exactly what ffmpeg complained about before we raise.
+        # Always print diagnostic lines first so we can distinguish
+        # 'ffmpeg silent' from 'ffmpeg printed nothing because the
+        # stderr pipe was empty'.
+        sys.stderr.write(f"[ffmpeg-dump] rc={rc} stderr_lines={len(stderr_buf)}\n")
+        sys.stderr.write(f"[ffmpeg-dump] dst_exists={dst.exists()} dst_size={dst.stat().st_size if dst.exists() else 'NA'}\n")
+        sys.stderr.write(f"[ffmpeg-dump] src={src} src_exists={src.exists()} src_size={src.stat().st_size if src.exists() else 'NA'}\n")
+        sys.stderr.write(f"[ffmpeg-dump] cmd={' '.join(cmd)}\n")
+        sys.stderr.flush()
         if stderr_buf:
             sys.stderr.write(
                 "[ffmpeg-stderr-dump]\n" + "\n".join(stderr_buf) + "\n"

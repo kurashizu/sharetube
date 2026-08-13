@@ -31,6 +31,8 @@ export interface JobConfig {
    *  with the `COOKIES_PASS` GH secret and passes the resulting file to
    *  yt-dlp via `--cookies`. Use false to skip cookies entirely. */
   use_cookies: boolean;
+  /** Proxy route for download traffic. Cloudflare WARP is a placeholder. */
+  proxy_mode: 'oracle-australia' | 'cloudflare-warp' | 'disabled';
 }
 
 /** Per-phase progress snapshot, sent with each update from the runner. */
@@ -131,6 +133,8 @@ export interface UserSettings {
    *  the repo. Most videos work without; only required for some that
    *  trigger YouTube's bot wall. */
   use_cookies: boolean;
+  /** Proxy route for download traffic. Cloudflare WARP is a placeholder. */
+  proxy_mode: 'oracle-australia' | 'cloudflare-warp' | 'disabled';
 }
 
 export interface ApiError {

@@ -15,6 +15,9 @@ Expected environment:
     ENCODER_PRESET    medium
     FFMPEG_BIN        ffmpeg (PATH lookup)
     YTDLP_BIN         yt-dlp (PATH lookup)
+
+  The per-job `proxy_mode` setting is applied by the GitHub Actions workflow;
+  the runner receives `PROXY_URL` only when the Oracle tunnel is active.
 """
 from __future__ import annotations
 

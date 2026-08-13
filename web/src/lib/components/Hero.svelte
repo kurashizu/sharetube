@@ -36,14 +36,15 @@
           audio_bitrate: cfg.audio_bitrate,
           ttl_seconds: cfg.ttl_seconds,
           // Watermark and cookies are always on (branding + bot wall);
-          // sent from defaults, not user-toggled.
+          // the proxy route follows the user's Network setting.
           watermark_enabled: true,
           watermark_line1: 'sharetube.krsz.in',
           watermark_line2: '{title} · {resolution} · {duration}',
           watermark_font_size: 28,
           encoder_preset: cfg.encoder_preset,
           runner: cfg.runner,
-          use_cookies: true
+          use_cookies: true,
+          proxy_mode: cfg.proxy_mode
         }
       });
       activeJob.set(res.id);

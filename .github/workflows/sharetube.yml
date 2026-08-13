@@ -196,8 +196,18 @@ jobs:
         env:
           OMNIPROXY_SERVER: ${{ vars.OMNIPROXY_SERVER }}
           PROXY_TOKEN: ${{ secrets.PROXY_TOKEN }}
+          JOB_CONFIG_JSON: ${{ github.event.client_payload.config || inputs.config_json }}
         run: |
           set -euo pipefail
+          PROXY_MODE=$(python3 -c 'import json,os; d=json.loads(os.environ.get("JOB_CONFIG_JSON") or "{}"); m=d.get("proxy_mode"); print(m if m in {"oracle-australia","cloudflare-warp","disabled"} else ("oracle-australia" if d.get("use_proxy", True) else "disabled"))')
+          if [ "$PROXY_MODE" = "cloudflare-warp" ]; then
+            echo "Cloudflare WARP is not implemented yet; continuing without proxy"
+            exit 0
+          fi
+          if [ "$PROXY_MODE" = "disabled" ]; then
+            echo "proxy disabled by job settings"
+            exit 0
+          fi
           if [ -z "${OMNIPROXY_SERVER:-}" ] || [ -z "${PROXY_TOKEN:-}" ]; then
             echo "::warning::OMNIPROXY_SERVER/PROXY_TOKEN not set; running without tunnel"
             exit 0

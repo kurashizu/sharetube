@@ -47,6 +47,9 @@ class JobConfig:
     watermark_font_size: int = 28
     encoder_preset: str = DEFAULT_ENCODER_PRESET
     use_cookies: bool = True
+    # Proxy route selected by the user. The workflow currently implements
+    # only oracle-australia; cloudflare-warp is a visible placeholder.
+    proxy_mode: str = "oracle-australia"
 
     # x264 presets exposed to the UI. Anything outside this whitelist
     # would either error out at ffmpeg or burn hours of runner time
@@ -92,6 +95,13 @@ class JobConfig:
                 out["encoder_preset"] = preset
         if "use_cookies" in data and isinstance(data["use_cookies"], bool):
             out["use_cookies"] = data["use_cookies"]
+        if "proxy_mode" in data and isinstance(data["proxy_mode"], str):
+            mode = data["proxy_mode"].strip().lower()
+            if mode in {"oracle-australia", "cloudflare-warp", "disabled"}:
+                out["proxy_mode"] = mode
+        elif "use_proxy" in data and isinstance(data["use_proxy"], bool):
+            # Compatibility for jobs created before proxy_mode existed.
+            out["proxy_mode"] = "oracle-australia" if data["use_proxy"] else "disabled"
         return cls(**out)  # type: ignore[arg-type]
 
 

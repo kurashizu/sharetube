@@ -252,7 +252,9 @@ Two separate caches, so setup stays fast:
   on macOS.
 
 All downloads carry `--max-time` / `--retry` so a slow mirror fails
-fast instead of hanging the whole run.
+fast instead of hanging the whole run. The Settings modal offers three
+proxy modes: Oracle Australia (default), Cloudflare WARP (placeholder),
+and Disabled. Only the Oracle tunnel is currently implemented.
 
 ## Manual re-run
 

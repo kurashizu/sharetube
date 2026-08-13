@@ -53,7 +53,10 @@ export const DEFAULT_SETTINGS: UserSettings = {
   // Cookies are always used (bot wall). The option is no longer
   // exposed in the UI; kept in the type only for stored settings
   // from older clients.
-  use_cookies: true
+  use_cookies: true,
+  // Oracle Australia avoids datacenter IP bot walls. Cloudflare WARP is
+  // shown as a placeholder until its runner integration is implemented.
+  proxy_mode: 'oracle-australia'
 };
 
 /** Read a stored setting, falling back to default. */

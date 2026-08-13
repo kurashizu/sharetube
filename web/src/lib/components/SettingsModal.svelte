@@ -88,6 +88,22 @@
         </div>
 
         <div class="field-group">
+          <div class="field-group-label">Network</div>
+
+          <div class="field">
+            <label class="field-label" for="cfg-proxy-mode">Proxy</label>
+            <div class="select-wrap">
+              <select id="cfg-proxy-mode" class="field-select" bind:value={draft.proxy_mode}>
+                <option value="oracle-australia">Oracle Australia (default)</option>
+                <option value="cloudflare-warp">Cloudflare WARP (coming soon)</option>
+                <option value="disabled">Disabled</option>
+              </select>
+            </div>
+            <div class="field-hint">Oracle Australia is enabled by default to avoid datacenter IP restrictions. Cloudflare WARP is not implemented yet.</div>
+          </div>
+        </div>
+
+        <div class="field-group">
           <div class="field-group-label">Transcode</div>
 
           <div class="field">

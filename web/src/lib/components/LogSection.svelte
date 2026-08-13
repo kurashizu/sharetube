@@ -1,9 +1,9 @@
 <script lang="ts">
+  // Log viewer. rAF-batched auto-scroll that follows the tail unless the
+  // user scrolled up. Same chrome family as the rest of the page.
   import { activeJob } from '$lib/stores/active.svelte';
   import { jobsStore } from '$lib/stores/jobs.svelte';
 
-  // Derive straight from the polled list (same single source of truth
-  // as JobCard) so log lines always reflect the latest poll.
   const job = $derived(
     activeJob.jobId
       ? jobsStore.jobs.find((j) => j.id === activeJob.jobId) ?? null
@@ -12,9 +12,9 @@
 
   function lineClass(msg: string): string {
     const lower = msg.toLowerCase();
-    if (lower.includes('error') || lower.includes('failed') || lower.includes('✗')) return 'err';
-    if (lower.includes('warn') || lower.includes('cancel') || lower.includes('⚠')) return 'warn';
-    if (msg.startsWith('✓') || msg.includes('share url')) return 'ok';
+    if (lower.includes('error') || lower.includes('failed')) return 'err';
+    if (lower.includes('warn') || lower.includes('cancel')) return 'warn';
+    if (lower.includes('share url') || lower.includes(' uploaded ')) return 'ok';
     if (msg.startsWith('$') || msg.startsWith('>')) return 'dim';
     return '';
   }
@@ -31,7 +31,6 @@
   }
 
   $effect(() => {
-    // Touch the log so $effect tracks it.
     const lines = job?.log_lines ?? [];
     lines.length;
     if (!bodyEl || !pinnedToBottom || lines.length === 0) return;
@@ -46,8 +45,8 @@
   });
 </script>
 
-<div class="log-section">
-  <div class="log-header">
+<section class="log card-like">
+  <div class="log-head">
     <span>Log</span>
   </div>
   <div class="log-body" bind:this={bodyEl} onscroll={onScroll}>
@@ -61,4 +60,4 @@
       {/each}
     {/if}
   </div>
-</div>
+</section>

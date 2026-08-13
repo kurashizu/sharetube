@@ -1,45 +1,75 @@
 <script lang="ts">
+  // Renders three states:
+  //   .job          - pending / running / errored / cancelled (single weighted bar)
+  //   .job.share    - completed (share URL + preview player)
+  //
+  // Reuses the same chrome token as the bar / rail. Phase weighting 30/50/20
+  // matches the original Svelte component and the runner.
   import { activeJob } from '$lib/stores/active.svelte';
   import { jobsStore } from '$lib/stores/jobs.svelte';
   import LogSection from './LogSection.svelte';
-  import ShareCard from './ShareCard.svelte';
   import type { PhaseName } from '$lib/types';
 
   const PHASES: PhaseName[] = ['Download', 'Transcode', 'Upload'];
+  // 30 / 50 / 20 weighted overall pct.
+  const WEIGHT: Record<PhaseName, number> = {
+    Download: 0.3,
+    Transcode: 0.5,
+    Upload: 0.2
+  };
 
-  // Derive the displayed job straight from the polled list instead of
-  // a copied snapshot, so progress/status updates always propagate the
-  // moment the poll lands (no stale "Waiting for runner…").
   const job = $derived(
     activeJob.jobId
       ? jobsStore.jobs.find((j) => j.id === activeJob.jobId) ?? null
       : (jobsStore.active ?? null)
   );
 
-  // Whether a given phase is finished (= some later phase has been
-  // started, or the job status is `done`).
-  function isPhaseDone(name: PhaseName, current: PhaseName | null, status: string): boolean {
-    if (status === 'done') return true;
-    if (!current) return false;
-    return PHASES.indexOf(name) < PHASES.indexOf(current);
+  function phaseOrder(name: PhaseName): number {
+    return PHASES.indexOf(name);
+  }
+
+  function phaseDone(name: PhaseName): boolean {
+    if (job?.status === 'done') return true;
+    if (!job?.phase) return false;
+    return phaseOrder(name) < phaseOrder(job.phase);
+  }
+
+  function phaseActive(name: PhaseName): boolean {
+    return job?.phase === name;
   }
 
   const dotClass = $derived.by((): string => {
     const s = job?.status ?? 'pending';
-    if (s === 'running' || s === 'pending') return 'running';
+    if (s === 'running' || s === 'pending') return 'run';
+    if (s === 'done') return 'ok';
+    if (s === 'error') return 'err';
+    if (s === 'cancelled') return 'q';
+    return '';
+  });
+
+  const stateClass = $derived.by((): string => {
+    const s = job?.status ?? 'pending';
+    if (s === 'running') return 'run';
+    if (s === 'done') return 'done';
+    if (s === 'error') return 'err';
+    if (s === 'cancelled') return 'cancel';
+    return 'q';
+  });
+
+  const stateLabel = $derived.by((): string => {
+    const s = job?.status ?? 'pending';
+    if (s === 'pending') return 'queued';
+    if (s === 'running') return 'working';
     if (s === 'done') return 'done';
     if (s === 'error') return 'error';
     if (s === 'cancelled') return 'cancelled';
     return '';
   });
 
-  // True right after the user pressed Force stop, before the runner
-  // has confirmed (status still running/pending).
   const stopping = $derived(
     job != null && jobsStore.stoppingIds.has(job.id)
   );
 
-  // Friendly explanation for a job that isn't processing yet.
   const pendingNote = $derived.by((): string | null => {
     if (job?.status !== 'pending') return null;
     if (job.dispatched) {
@@ -54,60 +84,110 @@
   const overallPct = $derived.by((): number => {
     const pp = job?.phase_progress;
     if (!pp) return 0;
-    // Weighted by typical duration: 30 / 50 / 20.
     return Math.max(
       0,
       Math.min(
         100,
-        Math.round(pp.Download * 0.3 + pp.Transcode * 0.5 + pp.Upload * 0.2)
+        Math.round(pp.Download * WEIGHT.Download +
+                   pp.Transcode * WEIGHT.Transcode +
+                   pp.Upload * WEIGHT.Upload)
       )
     );
   });
+
+  // Build direct mp4 URL for the inline preview. Falls back to /api/download.
+  const previewSrc = $derived.by((): string => {
+    if (!job?.share_url) return '';
+    // share_url is /d/<id> ; we reuse /api/download/<id> as the player src
+    // (same route the COPY button uses, serves the transcoded mp4).
+    const m = job.direct_url ?? job.share_url;
+    return m;
+  });
 </script>
 
-<section class="card job-card">
-  <header class="card-header">
-    <span class="job-status-dot {dotClass}"></span>
-    <span class="job-card-url">{job?.title ?? job?.url ?? ''}</span>
-    {#if stopping}
-      <span class="stopping-badge">STOPPING…</span>
-    {:else}
-      <span class="job-card-pct">{overallPct}%</span>
-    {/if}
-  </header>
+{#if job?.status === 'done' && job.share_url}
+  <!-- Completed job share card -->
+  <section class="job share">
+    <header class="job-head">
+      <span class="dot ok"></span>
+      <span class="title">{job.title ?? job.url}</span>
+      <span class="grow"></span>
+      <span class="state done">done</span>
+    </header>
 
-  <div class="phases">
-    {#each PHASES as name}
-      {@const pp = job?.phase_progress}
-      {@const pct = pp?.[name] ?? 0}
-      {@const meta = job?.phase_meta?.[name] ?? ''}
-      {@const phaseDone = isPhaseDone(name, job?.phase ?? null, job?.status ?? '')}
-      {@const phaseActive = job?.phase === name}
-      {@const fillClass = phaseDone ? 'done' : phaseActive ? 'active' : ''}
-      {@const labelClass = phaseDone ? 'done' : phaseActive ? 'active' : ''}
-      {@const widthPct = phaseDone ? 100 : Math.min(100, Math.max(0, pct))}
-      {@const barActive = phaseActive && job?.status === 'running'}
-      <div class="phase-row">
-        <div class="phase-label {labelClass}">{name}</div>
-        <div class="phase-bar">
-          <div class="phase-fill {fillClass} {!phaseDone && barActive && pct === 0 ? 'indeterminate' : ''}" style="width: {widthPct}%"></div>
+    <div class="share-bar">
+      <input class="url" readonly value={job.direct_url ?? job.share_url}
+             aria-label="Direct download link" />
+      <button class="btn primary copy" type="button"
+              data-copy={job.direct_url ?? job.share_url}>
+        <span class="lbl">copy</span>
+        <span class="ok">copied</span>
+      </button>
+    </div>
+
+    <!-- Inline preview. Points at the same /api/download/[id] route used by
+         the COPY button; the route serves the transcoded mp4 with Range
+         support so the browser can scrub and seek inline. -->
+    <video class="preview" controls preload="metadata" playsinline
+           src={previewSrc}>
+      <track kind="captions" srclang="en" label="English" default />
+    </video>
+
+    <LogSection />
+  </section>
+{:else}
+  <section class="job">
+    <header class="job-head">
+      <span class="dot {dotClass}"></span>
+      <span class="title">{job?.title ?? job?.url ?? 'Idle'}</span>
+      <span class="grow"></span>
+      {#if stopping}
+        <span class="state cancel">stopping</span>
+      {:else}
+        <span class="state {stateClass}">{stateLabel}</span>
+        <span class="eta">{overallPct}%</span>
+      {/if}
+    </header>
+
+    <!-- Single weighted progress bar -->
+    <div class="bigbar">
+      {#each PHASES as name}
+        {@const pp = job?.phase_progress}
+        {@const pct = pp?.[name] ?? 0}
+        {@const meta = job?.phase_meta?.[name] ?? ''}
+        {@const done = phaseDone(name)}
+        {@const active = phaseActive(name)}
+        {@const fill = done ? 'done' : active ? 'active' : ''}
+        {@const widthPct = done ? 100 : Math.min(100, Math.max(0, pct))}
+        {@const indet = !done && active && job?.status === 'running' && pct === 0}
+        <div class="seg {fill} {indet ? 'indeterminate' : ''}"
+             style="flex: {WEIGHT[name]};"
+             title="{name}: {done ? '100' : Math.round(pct)}% {meta}">
+          <div class="fill" style="width: {widthPct}%"></div>
         </div>
-        <div class="phase-meta">{phaseDone ? (meta || '✓') : barActive ? meta : ''}</div>
-      </div>
-    {/each}
-  </div>
+      {/each}
+    </div>
 
-  {#if job?.status === 'done' && job.share_url}
-    <ShareCard
-      shareUrl={job.share_url}
-      directUrl={job.direct_url ?? job.share_url}
-      expiresAt={job.expires_at ?? 0}
-    />
-  {:else if job?.status === 'error'}
-    <div class="error-banner">✗ {job.error ?? 'Unknown error'}</div>
-  {:else if pendingNote}
-    <div class="pending-note">⏳ {pendingNote}</div>
-  {/if}
+    <div class="legend">
+      {#each PHASES as name}
+        {@const pp = job?.phase_progress}
+        {@const pct = pp?.[name] ?? 0}
+        {@const meta = job?.phase_meta?.[name] ?? ''}
+        {@const done = phaseDone(name)}
+        <div class="col">
+          <div class="k">{name.toLowerCase()}</div>
+          <div class="v">{done ? '100' : Math.round(pct)}%</div>
+          <div class="meta">{meta || (done ? 'ok' : ' ')}</div>
+        </div>
+      {/each}
+    </div>
 
-  <LogSection />
-</section>
+    {#if job?.status === 'error'}
+      <div class="note err">{job.error ?? 'Unknown error'}</div>
+    {:else if pendingNote}
+      <div class="note q">{pendingNote}</div>
+    {/if}
+
+    <LogSection />
+  </section>
+{/if}

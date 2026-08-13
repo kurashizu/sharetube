@@ -1,17 +1,53 @@
 <script lang="ts">
+  // URL input + paste button + run button. Same chrome family as the rest
+  // of the page. Validation, submission, focus management and clipboard
+  // are kept identical to the original Hero behavior.
   import { jobsStore } from '$lib/stores/jobs.svelte';
   import { activeJob } from '$lib/stores/active.svelte';
   import { startJob } from '$lib/api';
   import { configStore } from '$lib/stores/config.svelte';
+  import { onMount } from 'svelte';
 
   let url = $state('');
   let submitting = $state(false);
   let hint = $state('');
+  let pasteAvailable = $state(false);
 
   const isActive = $derived(
     activeJob.job?.status === 'running' ||
       activeJob.job?.status === 'pending'
   );
+
+  // The paste button is enabled only when the browser exposes
+  // navigator.clipboard.readText. Insecure contexts / older Safari fall
+  // back to focusing the input, so the button is dimmed.
+  onMount(() => {
+    pasteAvailable =
+      typeof navigator !== 'undefined' &&
+      !!navigator.clipboard &&
+      typeof navigator.clipboard.readText === 'function' &&
+      (typeof window !== 'undefined' ? window.isSecureContext : true);
+  });
+
+  async function paste() {
+    if (!pasteAvailable) {
+      document.getElementById('urlInput')?.focus();
+      return;
+    }
+    try {
+      const text = await navigator.clipboard.readText();
+      const v = (text ?? '').trim();
+      if (/^(https?:\/\/|www\.)[^\s]+$/i.test(v)) {
+        url = v;
+      } else {
+        url = v;
+      }
+      hint = '';
+      document.getElementById('urlInput')?.focus();
+    } catch {
+      document.getElementById('urlInput')?.focus();
+    }
+  }
 
   async function start() {
     const trimmed = url.trim();
@@ -35,8 +71,6 @@
           video_bitrate: cfg.video_bitrate,
           audio_bitrate: cfg.audio_bitrate,
           ttl_seconds: cfg.ttl_seconds,
-          // Watermark and cookies are always on (branding + bot wall);
-          // runner and proxy route follow the user's settings.
           watermark_enabled: true,
           watermark_line1: 'sharetube.krsz.in',
           watermark_line2: '{title} · {resolution} · {duration}',
@@ -62,22 +96,28 @@
   }
 </script>
 
-<section class="hero">
-  <h1 class="hero-title">Share a video</h1>
-  <p class="hero-sub">Paste a URL — we'll download, transcode, and upload.</p>
-  <div class="url-form">
+<section class="ask">
+  <div class="ask-row">
     <input
+      id="urlInput"
+      class="url"
       type="text"
-      placeholder="https://youtube.com/watch?v=…"
+      placeholder="Paste a video URL..."
       bind:value={url}
       onkeydown={onKeydown}
       disabled={submitting || isActive}
       autocomplete="off"
       spellcheck="false"
     />
-    <button class="btn btn-primary" onclick={start} disabled={submitting || isActive}>
-      {submitting ? 'Submitting…' : '▶ Start'}
+    <button class="btn" id="pasteBtn" type="button" onclick={paste}
+            class:empty={!pasteAvailable}
+            title="Paste from clipboard">
+      paste
+    </button>
+    <button class="btn primary" id="runBtn" type="button" onclick={start}
+            disabled={submitting || isActive}>
+      {submitting ? 'submitting' : 'run'}
     </button>
   </div>
-  <div class="hero-hint">{hint}</div>
+  <p class="hint">{hint || 'Enter to submit. Settings, runner, proxy, ttl are remembered.'}</p>
 </section>

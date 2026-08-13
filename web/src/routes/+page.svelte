@@ -1,4 +1,7 @@
 <script lang="ts">
+  // Composes the page from the new terminal-style components. No logic
+  // changed — settings/help toggles, polling lifecycle, auto-focus on
+  // the active job all kept identical.
   import Header from '$lib/components/Header.svelte';
   import Hero from '$lib/components/Hero.svelte';
   import HelpModal from '$lib/components/HelpModal.svelte';
@@ -22,45 +25,32 @@
     jobsStore.stop();
   });
 
-  // Auto-focus the most-recent active (pending/running) job whenever
-  // the user hasn't manually picked one. Runs on every poll, so a
-  // newly submitted job becomes visible immediately.
   $effect(() => {
     if (activeJob.jobId) return;
     const a = jobsStore.active;
     if (a) activeJob.set(a.id);
   });
 
-  function openSettings() {
-    settingsOpen = true;
-  }
-  function closeSettings() {
-    settingsOpen = false;
-  }
-  function openHelp() {
-    helpOpen = true;
-  }
-  function closeHelp() {
-    helpOpen = false;
-  }
+  function openSettings() { settingsOpen = true; }
+  function closeSettings() { settingsOpen = false; }
+  function openHelp() { helpOpen = true; }
+  function closeHelp() { helpOpen = false; }
 </script>
 
 <svelte:head>
   <title>sharetube</title>
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <meta name="description" content="Download, transcode (VAAPI h264), and share a video URL in one click." />
+  <meta name="description" content="Download, transcode (VideoToolbox / VAAPI h264), and share a video URL in one click." />
 </svelte:head>
 
-<div class="app">
-  <Header onOpenSettings={openSettings} onOpenHelp={openHelp} />
-  <div class="layout">
-    <main class="main">
-      <Hero />
-      <JobCard />
-    </main>
-    <QueueDrawer />
-  </div>
-</div>
+<Header onOpenSettings={openSettings} onOpenHelp={openHelp} />
+
+<main>
+  <Hero />
+  <JobCard />
+</main>
+
+<QueueDrawer />
 
 <SettingsModal bind:open={settingsOpen} onClose={closeSettings} />
 <HelpModal bind:open={helpOpen} onClose={closeHelp} />

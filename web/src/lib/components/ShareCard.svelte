@@ -1,8 +1,11 @@
 <script lang="ts">
+  // Standalone share card. JobCard composes an inline share card now,
+  // but this component is kept for any other surface that imports it.
+  // Same chrome token as the rest of the page.
   interface Props {
     shareUrl: string;
     directUrl: string;
-    expiresAt: number;
+    expiresAt?: number;
   }
 
   let { shareUrl, directUrl, expiresAt }: Props = $props();
@@ -17,28 +20,25 @@
       timer = setTimeout(() => (copied = false), 1800);
     });
   }
-
-  function formatExpiry(ts: number): string {
-    if (!ts) return '';
-    // expires_at is stored as epoch milliseconds from the share API.
-    // Defensive: if it's a second-level-ish value, upscale it.
-    const ms = ts < 1e12 ? ts * 1000 : ts;
-    return new Date(ms).toLocaleString();
-  }
 </script>
 
-<section class="card share-card">
-  <div class="share-label">Share link</div>
-  <div class="share-row">
-    <input value={directUrl} readonly />
-    <button class="btn btn-success" onclick={copy}>
-      {copied ? '✓ Copied' : 'Copy link'}
+<section class="job share card-like">
+  <header class="job-head">
+    <span class="dot ok"></span>
+    <span class="title">share ready</span>
+    <span class="grow"></span>
+    <span class="state done">done</span>
+  </header>
+  <div class="share-bar">
+    <input class="url" readonly value={directUrl}
+           aria-label="Direct download link" />
+    <button class="btn primary copy" type="button" onclick={copy}>
+      <span class="lbl">copy</span>
+      <span class="ok">copied</span>
     </button>
   </div>
-  <div class="share-row" style="margin-top: 0.25rem">
-    <a href={shareUrl} target="_blank" rel="noopener" class="share-open">
-      ↗ Open viewer
-    </a>
-    <span class="share-meta">Expires {formatExpiry(expiresAt)}</span>
-  </div>
+  <a href={shareUrl} target="_blank" rel="noopener">open viewer</a>
+  {#if expiresAt}
+    <div class="meta">expires {new Date(expiresAt).toLocaleString()}</div>
+  {/if}
 </section>

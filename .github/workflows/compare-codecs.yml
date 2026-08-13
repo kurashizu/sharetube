@@ -95,7 +95,7 @@ jobs:
           VBITRATE: ${{ inputs.video_bitrate }}
         run: |
           set -euo pipefail
-          START_NS=$(date +%s%N)
+          START_NS=$(python3 -c 'import time; print(int(time.time()*1e9))')
           ffmpeg -y -hide_banner \
             -i src.mp4 \
             -vf "drawtext=fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf:text='libx264 %{pts\\:hms}':fontsize=24:fontcolor=white:x=10:y=10:box=1:boxcolor=black@0.5:boxborderw=4" \
@@ -103,7 +103,7 @@ jobs:
             -c:a aac -b:a 128k \
             -movflags +faststart \
             out_libx264.mp4 2>&1 | tee encode.log | tail -20
-          END_NS=$(date +%s%N)
+          END_NS=$(python3 -c 'import time; print(int(time.time()*1e9))')
           WALL_MS=$(( (END_NS - START_NS) / 1000000 ))
           echo ""
           echo "==== RESULT (libx264) ===="
@@ -190,14 +190,14 @@ jobs:
           # No drawtext: Homebrew's ffmpeg doesn't ship libfreetype by
           # default (the ffmpeg-full formula does), so the drawtext
           # filter isn't available here. Pure encode comparison anyway.
-          START_NS=$(date +%s%N)
+          START_NS=$(python3 -c 'import time; print(int(time.time()*1e9))')
           ffmpeg -y -hide_banner \
             -i src.mp4 \
             -c:v h264_videotoolbox -b:v "${VBITRATE}" -realtime 1 -allow_sw 1 \
             -c:a aac -b:a 128k \
             -movflags +faststart \
             out_videotoolbox.mp4 2>&1 | tee encode.log | tail -20
-          END_NS=$(date +%s%N)
+          END_NS=$(python3 -c 'import time; print(int(time.time()*1e9))')
           WALL_MS=$(( (END_NS - START_NS) / 1000000 ))
           echo ""
           echo "==== RESULT (h264_videotoolbox) ===="

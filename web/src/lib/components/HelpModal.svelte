@@ -39,7 +39,7 @@
             <li>Paste a video URL and press <b>Download</b>.</li>
             <li>The job goes into the queue. Up to <b>4 jobs</b> run at once.</li>
             <li>Watch the three phases light up: <b>Download → Transcode → Upload</b>.</li>
-            <li>When the share link appears, copy it — it expires when its TTL runs out.</li>
+            <li>When the share link appears, copy it — new links are valid for <b>1 day</b> by default.</li>
           </ol>
         </section>
 
@@ -49,7 +49,7 @@
             <dt>Download</dt>
             <dd>yt-dlp fetches the highest-resolution format up to your <i>Max source resolution</i> cap. DASH manifests pull video and audio streams with up to 8 parallel fragments.</dd>
             <dt>Transcode</dt>
-            <dd>ffmpeg re-encodes to h264 with your watermark burned in. Uses software libx264 unless a GPU is available.</dd>
+            <dd>ffmpeg re-encodes to H.264 with your watermark burned in. The default macOS runner uses Apple VideoToolbox hardware encoding; Linux uses software libx264.</dd>
             <dt>Upload</dt>
             <dd>The transcoded MP4 is PUT to the share host and the share URL is returned.</dd>
           </dl>
@@ -73,9 +73,10 @@
             <li><b>Output resolution</b> — what your share file is encoded at. Choose 2160p to keep the source size.</li>
             <li><b>Video bitrate</b> — lower = smaller file, lower quality. 600k is a good trade-off at 720p.</li>
             <li><b>Audio bitrate</b> — usually 128k is enough.</li>
-            <li><b>Proxy</b> — Cloudflare WARP is enabled by default. Oracle Australia uses the secure SOCKS5 tunnel; Disabled uses the runner's normal network.</li>
-            <li><b>x264 encoder preset</b> — slower presets produce smaller files but take longer to encode.</li>
-            <li><b>TTL</b> — how long the share link stays valid. The history row is deleted at the same moment.</li>
+            <li><b>Runner</b> — macOS Apple Silicon with VideoToolbox is selected by default; Linux with libx264 is available as an alternative.</li>
+            <li><b>Proxy</b> — Cloudflare WARP is enabled by default and routes the whole runner through a WireGuard tunnel. Oracle Australia uses a secure SOCKS5 tunnel; Disabled uses the runner's normal network.</li>
+            <li><b>x264 encoder preset</b> — applies to Linux; slower presets produce smaller files but take longer to encode.</li>
+            <li><b>TTL</b> — how long the share link stays valid. It defaults to 1 day, and the history row is deleted at the same moment.</li>
           </ul>
         </section>
 
@@ -86,14 +87,14 @@
 
         <section class="help-section">
           <h3>Privacy</h3>
-          <p>By default, the runner exits through Cloudflare WARP. You can choose the Oracle Australia SOCKS5 tunnel or disable the proxy in Settings. Cookies are never exposed to the public Cloudflare Worker.</p>
+          <p>By default, the macOS runner exits through Cloudflare WARP. You can choose the Oracle Australia SOCKS5 tunnel or disable the proxy in Settings. Cookies and the WARP account are encrypted and are decrypted only inside the runner; they are never exposed to the public Cloudflare Worker.</p>
         </section>
 
         <section class="help-section">
           <h3>If something goes wrong</h3>
           <ul>
             <li><b>"video unavailable"</b> — the video is private, deleted, or region-locked. Try a different source.</li>
-            <li><b>"sign in to confirm you're not a bot"</b> — the cookies for that site need refreshing. Out of scope for this build.</li>
+            <li><b>"sign in to confirm you're not a bot"</b> — the encrypted YouTube cookies may need refreshing. Retry later or contact the site administrator.</li>
             <li><b>Stuck on "Working" forever</b> — the queue is backed up, or GitHub Actions is throttling. The status pill shows what's happening.</li>
             <li><b>Share link doesn't work</b> — it expired. Re-download and pick a longer TTL.</li>
           </ul>

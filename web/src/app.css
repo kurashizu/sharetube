@@ -113,7 +113,9 @@ a:hover { text-decoration: underline; }
   border-radius: 999px;
   background: var(--bg-2);
   display: inline-flex; align-items: center; gap: 4px;
+  transition: color .15s, border-color .15s, background .15s;
 }
+.chip:hover { color: var(--fg); border-color: var(--mute); background: var(--bg-3); }
 .chip b { color: var(--accent); font-weight: 700; }
 
 /* icon-only button (settings). 34×34. svg fits 16×16. */
@@ -156,9 +158,14 @@ main {
   font: inherit; font-size: var(--fs-base);
   caret-color: var(--accent);
   outline: none;
-  transition: border-color .15s;
+  transition: border-color .15s, box-shadow .2s, background .2s;
 }
-.url:focus { border-color: var(--accent); }
+.url:hover { border-color: var(--rule-2); }
+.url:focus {
+  border-color: var(--accent);
+  background: var(--bg-2);
+  box-shadow: 0 0 0 3px rgba(168, 255, 96, 0.14);
+}
 .url::placeholder { color: var(--mute); }
 
 /* -- unified button family (settings / help / run / paste / copy) -- */
@@ -169,12 +176,16 @@ main {
   font: inherit; font-size: 13px; letter-spacing: .08em; text-transform: uppercase; font-weight: 700;
   color: var(--fg); background: var(--bg-2); border: 1px solid var(--rule-2);
   border-radius: 12px; cursor: pointer; white-space: nowrap;
-  transition: background .15s, border-color .15s, color .15s, filter .15s;
+  transition: background .15s, border-color .15s, color .15s, filter .15s,
+              transform .12s ease-out, box-shadow .15s;
+  will-change: transform;
 }
 .btn:hover { background: var(--bg-3); border-color: var(--mute); }
+.btn:active { transform: translateY(1px) scale(0.985); filter: brightness(0.96); }
 .btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .btn.primary { background: var(--accent); border-color: var(--accent); color: #0a0c0f; }
-.btn.primary:hover { filter: brightness(1.06); }
+.btn.primary:hover { filter: brightness(1.06); box-shadow: 0 6px 18px rgba(168, 255, 96, 0.18); }
+.btn.primary:active { box-shadow: 0 2px 8px rgba(168, 255, 96, 0.18); }
 .btn.danger { color: var(--err); border-color: rgba(255, 110, 110, 0.4); }
 .btn.danger:hover { background: rgba(255, 110, 110, 0.12); }
 
@@ -202,7 +213,22 @@ main {
   border-radius: var(--chrome-radius);
   padding: var(--pad-card);
   box-shadow: var(--chrome-shadow);
+  transition: border-color .2s, transform .25s cubic-bezier(.2,.7,.2,1),
+              box-shadow .25s;
+  will-change: transform;
 }
+.card-like:hover, .job:hover, .log:hover {
+  border-color: var(--rule-2);
+  transform: translateY(-1px);
+  box-shadow: 0 20px 48px rgba(0, 0, 0, 0.55);
+}
+
+/* one-shot entrance for the active job card */
+@keyframes job-enter {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.job { animation: job-enter .35s cubic-bezier(.2,.7,.2,1) both; }
 
 /* -- job card ------------------------------------------------------- */
 
@@ -329,9 +355,17 @@ main {
 }
 .share-bar .btn.primary { position: relative; min-width: 96px; }
 .share-bar .btn.primary .ok { display: none; }
-.share-bar .btn.primary.copied { background: var(--ok); border-color: var(--ok); color: #0a0c0f; }
+.share-bar .btn.primary.copied {
+  background: var(--ok); border-color: var(--ok); color: #0a0c0f;
+  animation: copy-pop .42s cubic-bezier(.2,.8,.2,1);
+}
 .share-bar .btn.primary.copied .lbl { display: none; }
 .share-bar .btn.primary.copied .ok { display: inline; }
+@keyframes copy-pop {
+  0%   { transform: scale(1); }
+  35%  { transform: scale(1.08); box-shadow: 0 0 0 6px rgba(90, 215, 166, 0.28); }
+  100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(90, 215, 166, 0); }
+}
 
 /* mini preview player */
 .preview {
@@ -424,10 +458,17 @@ main {
   color: var(--dim); background: transparent;
   border: 1px solid var(--rule-2); border-radius: 8px;
   cursor: pointer;
+  transition: color .15s, background .15s, border-color .15s;
 }
+.rail-tab:hover { color: var(--fg-2); background: var(--bg-2); }
 .rail-tab.on {
   color: var(--accent); border-color: rgba(168, 255, 96, 0.4);
   background: rgba(168, 255, 96, 0.08);
+  animation: tab-on .25s ease-out;
+}
+@keyframes tab-on {
+  from { transform: scale(0.96); }
+  to   { transform: scale(1); }
 }
 .rail-search {
   padding: 8px 10px 0;
@@ -525,7 +566,9 @@ main {
   position: absolute; inset: 0;
   background: rgba(6, 8, 10, 0.6);
   backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+  animation: modal-fade .18s ease-out;
 }
+@keyframes modal-fade { from { opacity: 0; } to { opacity: 1; } }
 .modal-card {
   position: relative;
   width: min(640px, calc(100vw - 48px));
@@ -535,6 +578,11 @@ main {
   border-radius: var(--chrome-radius);
   box-shadow: var(--chrome-shadow);
   display: flex; flex-direction: column;
+  animation: modal-rise .26s cubic-bezier(.2,.8,.2,1);
+}
+@keyframes modal-rise {
+  from { opacity: 0; transform: translateY(12px) scale(0.97); }
+  to   { opacity: 1; transform: translateY(0)   scale(1); }
 }
 .modal-card.help { width: min(720px, calc(100vw - 48px)); }
 .modal-head {
@@ -767,3 +815,19 @@ main {
    older markup (if any) from rendering broken. */
 .app-header { display: none; }
 .hero       { display: none; }
+
+/* respect users who prefer less motion: strip the entrance / hover
+   transitions and the indeterminate bar pulse, keep only the
+   necessary state-change colors. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+  .bigbar .seg.indeterminate .fill {
+    animation: none !important;
+    width: 30% !important;
+    opacity: 0.6;
+  }
+}

@@ -38,7 +38,7 @@
 </script>
 
 <svelte:head>
-  <title>sharetube</title>
+  <title>ShareTube</title>
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="description" content="Download, transcode (VideoToolbox / VAAPI h264), and share a video URL in one click." />
 </svelte:head>

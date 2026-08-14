@@ -654,9 +654,9 @@ main {
 }
 
 @media (max-width: 640px) {
-  /* Top bar wraps onto two rows: brand line + chip line + actions line.
-     We turn the right cluster into its own row so the chips never get
-     clipped on a 360px viewport. */
+  /* Top bar wraps onto two rows: brand line + chip+actions line.
+     Shrink the buttons so the bar's second row stays compact, then
+     reserve enough top padding on <main> to clear the whole bar. */
   .bar {
     top: 10px; left: 10px; right: 10px;
     padding: 8px 12px; gap: 6px 10px;
@@ -664,6 +664,7 @@ main {
   }
   .bar .l {
     flex: 1 1 auto; min-width: 0;
+    align-items: center;
   }
   .bar .r {
     flex: 1 1 100%;
@@ -672,7 +673,12 @@ main {
     flex-wrap: wrap;
     gap: 6px;
   }
+  /* shrink the bar buttons so the wrapped row stays at ~36px tall
+     instead of the desktop 40px */
+  .bar .btn { height: 34px; padding: 0 14px; font-size: 12px; }
+  .bar .btn svg { width: 14px; height: 14px; }
   .brand { font-size: 15px; }
+  .brand-mark { width: 22px; height: 22px; }
   /* chips become tiny pills to fit on a 360px viewport */
   .chip {
     font-size: 10.5px; padding: 3px 7px;
@@ -681,11 +687,13 @@ main {
   /* hide the leading `*` glyph on small screens to save 14px per chip */
   .chip b { display: none; }
 
-  /* give main enough top room for a two-row floating bar
-     (row 1 brand ≈ 30px, gap 10px, row 2 chips ≈ 28px,
-     plus 10px top inset + 16px breathing room = ~94px) */
+  /* Reserve enough top room for the two-row floating bar.
+     Real measured height on a 360px viewport:
+       top:10 + pad-top:8 + row1(~30 brand line) + gap:6
+       + row2(~34 button row) + pad-bottom:8 = 96
+     Add a 24px breathing buffer => 120px. */
   main {
-    padding: 96px 14px 96px;
+    padding: 120px 14px 96px;
   }
 
   /* dock sits comfortably above main's bottom edge */
@@ -696,13 +704,13 @@ main {
   .legend { grid-template-columns: 1fr; gap: 8px; }
 
   /* input row: stack so paste+run buttons don't squash the input */
-  .ask-row { flex-direction: column; }
+  .ask-row { flex-direction: column; gap: 8px; }
   .ask-row #pasteBtn,
   .ask-row #runBtn { width: 100%; }
   .ask-row .url { font-size: 14px; padding: 12px 14px; }
 
   /* share bar: stack url + copy */
-  .share-bar { flex-direction: column; align-items: stretch; }
+  .share-bar { flex-direction: column; align-items: stretch; gap: 8px; }
   .share-bar input.url { width: 100%; }
   .share-bar .btn.primary { width: 100%; }
 
@@ -711,12 +719,19 @@ main {
   .preview-fallback { padding: 16px; }
   .preview-fallback .ttl { font-size: 11.5px; }
   .preview-fallback .hint { font-size: 12px; }
+
+  /* modal: keep on-screen on phones */
+  .modal-card { width: min(560px, calc(100vw - 24px)); }
+  .modal-card.help { width: min(560px, calc(100vw - 24px)); }
+  .modal-head { padding: 14px 16px; }
+  .modal-body { padding: 14px 16px; }
+  .modal-foot { padding: 12px 16px; }
 }
 
 /* super-narrow viewport (≤ 380px) — even tighter chips */
 @media (max-width: 380px) {
-  .bar { left: 8px; right: 8px; }
-  main { padding-left: 12px; padding-right: 12px; }
+  .bar { left: 8px; right: 8px; padding: 6px 10px; }
+  main { padding-left: 12px; padding-right: 12px; padding-top: 116px; }
   .chip { font-size: 10px; padding: 3px 6px; }
 }
 

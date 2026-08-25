@@ -359,6 +359,9 @@ jobs:
           BACKEND_URL: ${{ vars.WORKER_URL }}
           INTERNAL_TOKEN: ${{ secrets.INTERNAL_TOKEN }}
           COOKIES_PASS: ${{ secrets.COOKIES_PASS }}
+          # Optional: cf-share admin uploads (100 GB cap, no quota).
+          # Empty/unset -> the runner uploads anonymously.
+          CF_SHARE_ADMIN_PASS: ${{ secrets.CF_SHARE_ADMIN_PASS }}
         run: |
           set -euo pipefail
           echo "JOB_ID=$JOB_ID"

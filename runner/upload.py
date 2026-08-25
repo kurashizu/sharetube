@@ -11,9 +11,9 @@ to be different hosts in production.
 """
 from __future__ import annotations
 
-import base64
 import json
 import os
+import re
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
@@ -42,13 +42,36 @@ class UploadResult:
     expires_at: int
 
 
-def _maybe_admin_headers() -> dict[str, str]:
-    user = os.environ.get("CF_SHARE_ADMIN_USER")
+def _maybe_admin_headers(app_url: str, on_log: "LogCb") -> dict[str, str]:
+    """Log in to cf-share and return a Cookie header for admin uploads.
+
+    cf-share's admin auth is a JWT in the ``cf_admin`` HttpOnly cookie,
+    obtained via ``POST /api/admin/login`` with the admin password (the old
+    HTTP Basic Auth path no longer exists server-side). Set
+    ``CF_SHARE_ADMIN_PASS`` to upload as admin — 100 GB cap, no per-IP
+    quota, ``ttl=0`` allowed. Unset (or on login failure) we fall back to
+    an anonymous upload rather than failing the job.
+    """
     pw = os.environ.get("CF_SHARE_ADMIN_PASS")
-    if not user or not pw:
+    if not pw:
         return {}
-    raw = f"{user}:{pw}".encode()
-    return {"Authorization": "Basic " + base64.b64encode(raw).decode()}
+    req = urllib.request.Request(
+        f"{app_url}/api/admin/login",
+        data=json.dumps({"password": pw}).encode(),
+        method="POST",
+        headers={**_UA, "Content-Type": "application/json"},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=60) as r:
+            set_cookie = r.headers.get("Set-Cookie") or ""
+    except urllib.error.HTTPError as e:
+        on_log(f"cf-share admin login failed ({e.code}); uploading anonymously")
+        return {}
+    m = re.match(r"(cf_admin=[^;]+)", set_cookie)
+    if not m:
+        on_log("cf-share admin login returned no cf_admin cookie; uploading anonymously")
+        return {}
+    return {"Cookie": m.group(1)}
 
 
 # Cloudflare on the cf-share host 403s urllib's default UA
@@ -111,7 +134,7 @@ def upload(
     on_progress: ProgressCb,
     filename: str | None = None,
 ) -> UploadResult:
-    headers = _maybe_admin_headers()
+    headers = _maybe_admin_headers(cfg.app_url, on_log)
     on_log(f"Upload mode: {'admin' if headers else 'anonymous'}")
 
     size = src.stat().st_size
@@ -157,9 +180,11 @@ def upload(
                     last_pct = pct
                     on_progress(min(100.0, pct), f"{pct:.0f}% {_fmt_bytes(sent)}/{_fmt_bytes(size)}")
         full_body = b"".join(body_parts)
+        # Note: no auth headers on S3 PUTs — the presigned URL is the auth,
+        # and stray Authorization/Cookie headers don't belong at the S3 host.
         etag = _capture_etag(
             put_url, full_body,
-            {**headers, "Content-Type": ctype, "Content-Length": str(size)},
+            {"Content-Type": ctype, "Content-Length": str(size)},
         )
         if not etag:
             raise RuntimeError("S3 PUT returned no ETag header")
@@ -191,7 +216,7 @@ def upload(
             on_log(f"PUT part {i}/{total_parts} ({len(chunk):,} bytes) → S3")
             etag = _capture_etag(
                 part["url"], chunk,
-                {**headers, "Content-Type": ctype, "Content-Length": str(len(chunk))},
+                {"Content-Type": ctype, "Content-Length": str(len(chunk))},
             )
             if not etag:
                 raise RuntimeError(f"part {i} PUT returned no ETag")

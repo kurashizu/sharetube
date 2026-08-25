@@ -130,6 +130,10 @@ def upload(
     mode = init["mode"]
 
     # ── 2. PUT (single or multipart) ──────────────────────────────────
+    # Grant signature over (key, size, contentType) issued by init; the
+    # complete endpoint requires it echoed back verbatim.
+    upload_sig = init.get("uploadSig", "")
+
     if mode == "single":
         put_url = init["url"]
         upload_id = init["uploadId"]
@@ -163,6 +167,7 @@ def upload(
         complete_body = {
             "uploadId": upload_id,
             "key": key,
+            "uploadSig": upload_sig,
             "filename": filename,
             "size": size,
             "contentType": ctype,
@@ -205,6 +210,7 @@ def upload(
             "uploadId": upload_id,
             "s3UploadId": s3_upload_id,
             "key": key,
+            "uploadSig": upload_sig,
             "filename": filename,
             "size": size,
             "contentType": ctype,

@@ -70,17 +70,41 @@ function settle(token: string | null) {
  * It must stay in normal flow and be visible to layout — Turnstile
  * refuses to run inside a container it considers hidden, so
  * `display:none` or an off-screen `left:-9999px` box silently fails.
- * A zero-height overflow-hidden box is laid out normally but occupies
- * no space until a challenge actually needs to be shown.
+ *
+ * The element is always positioned and laid out, but clipped to zero
+ * size unless an interactive challenge is on screen. In Managed mode
+ * Cloudflare may decide to show one and needs somewhere to draw it;
+ * the rest of the time the widget (including its post-solve "Success!"
+ * state) must not linger over the page, so `showChallenge` expands the
+ * box only for the duration of the interaction.
  */
 function ensureContainer(): HTMLElement {
   if (container) return container;
   const el = document.createElement('div');
-  el.style.height = '0';
-  el.style.overflow = 'hidden';
+  el.style.position = 'fixed';
+  el.style.left = '50%';
+  el.style.top = '50%';
+  el.style.transform = 'translate(-50%, -50%)';
+  el.style.zIndex = '9999';
   container = el;
+  showChallengeOn(el, false);
   document.body.appendChild(el);
   return el;
+}
+
+/** Reveal or hide the widget box. Hidden means clipped, not display:none —
+ *  Turnstile refuses to run inside a container it considers hidden. */
+function showChallengeOn(el: HTMLElement, visible: boolean) {
+  el.style.width = visible ? 'auto' : '0';
+  el.style.height = visible ? 'auto' : '0';
+  el.style.overflow = visible ? 'visible' : 'hidden';
+  el.style.opacity = visible ? '1' : '0';
+  el.style.pointerEvents = visible ? 'auto' : 'none';
+  el.style.boxShadow = visible ? '0 0 0 100vmax rgba(0,0,0,0.6)' : '';
+}
+
+function showChallenge(visible: boolean) {
+  if (container) showChallengeOn(container, visible);
 }
 
 /**
@@ -106,6 +130,7 @@ export async function getToken(sitekey: string, timeoutMs = 30_000): Promise<str
     const timer = setTimeout(() => settle(null), timeoutMs);
     const done = (token: string | null) => {
       clearTimeout(timer);
+      showChallenge(false);
       settle(token);
     };
 
@@ -123,6 +148,9 @@ export async function getToken(sitekey: string, timeoutMs = 30_000): Promise<str
           // "domain not authorized", when the site's exact hostname is
           // missing from Hostname Management) otherwise shows up only as
           // a generic verification failure with no way to diagnose it.
+          // Cloudflare decided a visible challenge is needed — reveal it.
+          'before-interactive-callback': () => showChallenge(true),
+          'after-interactive-callback': () => showChallenge(false),
           'error-callback': (code?: string) => {
             console.warn(
               `Turnstile error${code ? ` ${code}` : ''}` +

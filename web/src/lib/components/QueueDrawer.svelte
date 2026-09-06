@@ -6,6 +6,15 @@
   import { activeJob } from '$lib/stores/active.svelte';
   import { cancelJob, clearHistory, deleteJob, moveJob } from '$lib/api';
   import type { JobEntry, JobStatus } from '$lib/types';
+  import { Button } from '$lib/components/ui/button';
+  import { Input } from '$lib/components/ui/input';
+  import ChevronDownIcon from '@lucide/svelte/icons/chevron-down';
+  import ChevronLeftIcon from '@lucide/svelte/icons/chevron-left';
+  import ChevronRightIcon from '@lucide/svelte/icons/chevron-right';
+  import ChevronUpIcon from '@lucide/svelte/icons/chevron-up';
+  import ExternalLinkIcon from '@lucide/svelte/icons/external-link';
+  import SquareIcon from '@lucide/svelte/icons/square';
+  import Trash2Icon from '@lucide/svelte/icons/trash-2';
 
   type Tab = 'all' | 'queue' | 'history';
   let tab = $state<Tab>('all');
@@ -89,12 +98,13 @@
     }
   }
 
+  /** Status dot colour, matching JobCard's mapping. */
   function dotClass(status: JobStatus): string {
-    if (status === 'running' || status === 'pending') return 'run';
-    if (status === 'done') return 'ok';
-    if (status === 'error') return 'err';
-    if (status === 'cancelled') return 'q';
-    return '';
+    if (status === 'running' || status === 'pending') return 'bg-cyan animate-pulse';
+    if (status === 'done') return 'bg-ok';
+    if (status === 'error') return 'bg-err';
+    if (status === 'cancelled') return 'bg-queued';
+    return 'bg-mute';
   }
 
   function pct(j: JobEntry): number {
@@ -149,167 +159,258 @@
   }
 </script>
 
-<aside class="rail" class:open aria-label="Jobs">
-  <div class="rail-head">
-    <span class="title">Jobs</span>
-    <span class="count">{total}</span>
+<!-- Shared row for every list section. `actions` renders the buttons
+     that differ per section (stop / reorder / open / delete). -->
+{#snippet railItem(j: JobEntry, actions: import('svelte').Snippet<[JobEntry]>)}
+  <div
+    class="grid cursor-pointer grid-cols-[auto_1fr_auto_auto] items-center gap-2
+           rounded-[10px] border px-2.5 py-2 text-[13px] transition-colors
+           {activeJob.jobId === j.id
+             ? 'border-primary/40 bg-primary/8'
+             : 'border-transparent hover:border-border hover:bg-surface'}"
+    onclick={() => select(j)}
+    role="button"
+    tabindex="0"
+    onkeydown={(e) => e.key === 'Enter' && select(j)}
+  >
+    <span class="size-2 shrink-0 rounded-full {dotClass(j.status)}"></span>
+    <span class="truncate text-[--fg-2]" title={j.url}>{friendlyName(j)}</span>
+    <span class="shrink-0 text-[11px] tabular-nums text-mute">{stateLabel(j)}</span>
+    <span class="flex shrink-0 items-center gap-1">
+      {@render actions(j)}
+    </span>
+  </div>
+{/snippet}
+
+{#snippet stopBtn(j: JobEntry)}
+  <Button
+    variant="outline"
+    size="icon"
+    class="size-[22px] text-mute hover:border-cancel/40 hover:bg-cancel/15 hover:text-cancel [&_svg]:size-3"
+    onclick={(e) => stop(e, j)}
+    title="Force stop"
+  >
+    <SquareIcon />
+  </Button>
+{/snippet}
+
+{#snippet delBtn(j: JobEntry)}
+  <Button
+    variant="outline"
+    size="icon"
+    class="size-[22px] text-mute hover:border-err/40 hover:bg-err/15 hover:text-err [&_svg]:size-3"
+    onclick={(e) => del(e, j)}
+    title="Delete"
+  >
+    <Trash2Icon />
+  </Button>
+{/snippet}
+
+{#snippet openBtn(j: JobEntry)}
+  <Button
+    variant="outline"
+    size="icon"
+    href={j.direct_url ?? j.share_url ?? undefined}
+    class="size-[22px] text-mute hover:text-primary [&_svg]:size-3"
+    onclick={(e) => e.stopPropagation()}
+    target="_blank"
+    rel="noopener"
+    title="Open share link"
+  >
+    <ExternalLinkIcon />
+  </Button>
+{/snippet}
+
+{#snippet moveBtns(j: JobEntry, idx: number)}
+  <Button
+    variant="outline"
+    size="icon"
+    class="size-[22px] text-mute hover:border-primary/40 hover:text-primary [&_svg]:size-3"
+    onclick={(e) => move(e, j, 'up')}
+    disabled={idx === 0}
+    title="Move up"
+  >
+    <ChevronUpIcon />
+  </Button>
+  <Button
+    variant="outline"
+    size="icon"
+    class="size-[22px] text-mute hover:border-primary/40 hover:text-primary [&_svg]:size-3"
+    onclick={(e) => move(e, j, 'down')}
+    disabled={idx === queue.length - 1}
+    title="Move down"
+  >
+    <ChevronDownIcon />
+  </Button>
+{/snippet}
+
+<!-- Per-section action sets. -->
+{#snippet allActions(j: JobEntry)}
+  {@const qIdx = queue.indexOf(j)}
+  {#if j.status === 'running'}{@render stopBtn(j)}{/if}
+  {#if j.status === 'pending' && qIdx >= 0}
+    {@render moveBtns(j, qIdx)}{@render delBtn(j)}
+  {/if}
+  {#if j.share_url && j.status === 'done'}
+    {@render openBtn(j)}{@render delBtn(j)}
+  {/if}
+  {#if j.status === 'error' || j.status === 'cancelled'}{@render delBtn(j)}{/if}
+{/snippet}
+
+{#snippet historyActions(j: JobEntry)}
+  {#if j.share_url && j.status === 'done'}{@render openBtn(j)}{/if}
+  {@render delBtn(j)}
+{/snippet}
+
+<aside
+  class="chrome fixed z-30 flex flex-col
+         inset-x-4 bottom-4 top-auto max-h-[60vh] transition-transform duration-250
+         xl:inset-y-4 xl:left-auto xl:right-4 xl:max-h-none xl:w-[340px] xl:translate-y-0
+         {open ? 'translate-y-0' : 'translate-y-[110%] pointer-events-none xl:pointer-events-auto'}"
+  aria-label="Jobs"
+>
+  <div class="flex items-center justify-between border-b border-rule px-3.5 py-3">
+    <span class="text-xs uppercase tracking-[0.14em] text-dim">Jobs</span>
+    <span
+      class="inline-flex h-[22px] min-w-[22px] items-center justify-center rounded-full
+             bg-primary/15 px-1.5 text-[11px] tabular-nums text-primary"
+    >
+      {total}
+    </span>
   </div>
 
-  <div class="rail-tabs">
-    <button class="rail-tab" class:on={tab === 'all'} type="button"
-            onclick={() => (tab = 'all')}>all</button>
-    <button class="rail-tab" class:on={tab === 'queue'} type="button"
-            onclick={() => (tab = 'queue')}>queue</button>
-    <button class="rail-tab" class:on={tab === 'history'} type="button"
-            onclick={() => (tab = 'history')}>history</button>
+  <div class="flex gap-1 px-2.5 pt-2">
+    {#each [['all', 'all'], ['queue', 'queue'], ['history', 'history']] as [value, label]}
+      <button
+        type="button"
+        class="flex-1 rounded-md border py-1.5 text-[11px] uppercase tracking-[0.12em] transition-colors
+               {tab === value
+                 ? 'border-primary/40 bg-primary/8 text-primary'
+                 : 'border-border text-dim hover:bg-surface hover:text-[--fg-2]'}"
+        onclick={() => (tab = value as Tab)}
+      >
+        {label}
+      </button>
+    {/each}
   </div>
 
-  <div class="rail-search">
-    <input type="text" placeholder="search…" bind:value={search}
-           aria-label="Search jobs" />
+  <div class="px-2.5 pt-2">
+    <Input
+      class="h-8 bg-surface text-[13px]"
+      type="text"
+      placeholder="search…"
+      bind:value={search}
+      aria-label="Search jobs"
+    />
   </div>
 
-  <div class="rail-body">
+  <div
+    class="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto px-2.5 pb-3 pt-2
+           [scrollbar-color:var(--rule-2)_transparent] [scrollbar-width:thin]"
+  >
     {#if tab === 'all'}
       {#if filtered.length === 0}
-        <div class="rail-empty">No jobs yet — paste a URL to get started.</div>
+        <div class="px-4 py-8 text-center text-[13px] text-mute">
+          No jobs yet — paste a URL to get started.
+        </div>
       {/if}
       {#each filtered as j (j.id)}
-        {@const qIdx = queue.indexOf(j)}
-        <div class="rail-item {activeJob.jobId === j.id ? 'on' : ''}"
-             onclick={() => select(j)} role="button" tabindex="0"
-             onkeydown={(e) => e.key === 'Enter' && select(j)}>
-          <span class="dot {dotClass(j.status)}"></span>
-          <span class="name" title={j.url}>{friendlyName(j)}</span>
-          <span class="meta">{stateLabel(j)}</span>
-          <span class="actions">
-            {#if j.status === 'running'}
-              <button class="ic-btn stop" type="button"
-                      onclick={(e) => stop(e, j)}
-                      onkeydown={(e) => e.key === 'Enter' && stop(e, j)}
-                      title="Force stop">X</button>
-            {/if}
-            {#if j.status === 'pending' && qIdx >= 0}
-              <button class="ic-btn up" type="button"
-                      onclick={(e) => move(e, j, 'up')}
-                      disabled={qIdx === 0} title="Move up">^</button>
-              <button class="ic-btn down" type="button"
-                      onclick={(e) => move(e, j, 'down')}
-                      disabled={qIdx === queue.length - 1} title="Move down">v</button>
-              <button class="ic-btn del" type="button"
-                      onclick={(e) => del(e, j)}
-                      title="Delete">x</button>
-            {/if}
-            {#if j.share_url && j.status === 'done'}
-              <a class="ic-btn" href={j.direct_url ?? j.share_url}
-                 onclick={(e) => e.stopPropagation()} target="_blank"
-                 rel="noopener" title="Open share link">go</a>
-              <button class="ic-btn del" type="button"
-                      onclick={(e) => del(e, j)} title="Delete">x</button>
-            {/if}
-            {#if j.status === 'error' || j.status === 'cancelled'}
-              <button class="ic-btn del" type="button"
-                      onclick={(e) => del(e, j)} title="Delete">x</button>
-            {/if}
-          </span>
-        </div>
+        {@render railItem(j, allActions)}
       {/each}
     {:else if tab === 'queue'}
       {#if filtered.length === 0}
-        <div class="rail-empty">Nothing in queue or processing.</div>
+        <div class="px-4 py-8 text-center text-[13px] text-mute">
+          Nothing in queue or processing.
+        </div>
       {/if}
       {#if processing.length > 0}
-        <div class="rail-group">Processing</div>
+        <div class="px-1.5 pb-1 pt-3 text-[10.5px] font-bold uppercase tracking-[0.14em] text-mute">
+          Processing
+        </div>
         {#each processing as j (j.id)}
-          <div class="rail-item {activeJob.jobId === j.id ? 'on' : ''}"
-               onclick={() => select(j)} role="button" tabindex="0"
-               onkeydown={(e) => e.key === 'Enter' && select(j)}>
-            <span class="dot {dotClass(j.status)}"></span>
-            <span class="name" title={j.url}>{friendlyName(j)}</span>
-            <span class="meta">{stateLabel(j)}</span>
-            <span class="actions">
-              <button class="ic-btn stop" type="button"
-                      onclick={(e) => stop(e, j)}
-                      title="Force stop">X</button>
-            </span>
-          </div>
+          {@render railItem(j, stopBtn)}
         {/each}
       {/if}
       {#if queue.length > 0}
-        <div class="rail-group">Awaiting runner</div>
+        <div class="px-1.5 pb-1 pt-3 text-[10.5px] font-bold uppercase tracking-[0.14em] text-mute">
+          Awaiting runner
+        </div>
         {#each queue as j, i (j.id)}
-          <div class="rail-item {activeJob.jobId === j.id ? 'on' : ''}"
-               onclick={() => select(j)} role="button" tabindex="0"
-               onkeydown={(e) => e.key === 'Enter' && select(j)}>
-            <span class="dot {dotClass(j.status)}"></span>
-            <span class="name" title={j.url}>{friendlyName(j)}</span>
-            <span class="meta">{stateLabel(j)}</span>
-            <span class="actions">
-              <button class="ic-btn up" type="button"
-                      onclick={(e) => move(e, j, 'up')} disabled={i === 0}
-                      title="Move up">^</button>
-              <button class="ic-btn down" type="button"
-                      onclick={(e) => move(e, j, 'down')}
-                      disabled={i === queue.length - 1} title="Move down">v</button>
-              <button class="ic-btn del" type="button"
-                      onclick={(e) => del(e, j)} title="Delete">x</button>
-            </span>
-          </div>
+          {#snippet queueActions(job: JobEntry)}
+            {@render moveBtns(job, i)}{@render delBtn(job)}
+          {/snippet}
+          {@render railItem(j, queueActions)}
         {/each}
       {/if}
     {:else}
       {#if history.length === 0}
-        <div class="rail-empty">No finished jobs yet.</div>
+        <div class="px-4 py-8 text-center text-[13px] text-mute">
+          No finished jobs yet.
+        </div>
       {/if}
       {#if history.length > 0}
-        <div class="rail-group">
+        <div class="px-1.5 pb-1 pt-3 text-[10.5px] font-bold uppercase tracking-[0.14em] text-mute">
           History{history.length > HISTORY_PAGE_SIZE ? ` (${history.length})` : ''}
         </div>
         {#each historyPageItems as j (j.id)}
-          <div class="rail-item {activeJob.jobId === j.id ? 'on' : ''}"
-               onclick={() => select(j)} role="button" tabindex="0"
-               onkeydown={(e) => e.key === 'Enter' && select(j)}>
-            <span class="dot {dotClass(j.status)}"></span>
-            <span class="name" title={j.url}>{friendlyName(j)}</span>
-            <span class="meta">{stateLabel(j)}</span>
-            <span class="actions">
-              {#if j.share_url && j.status === 'done'}
-                <a class="ic-btn" href={j.direct_url ?? j.share_url}
-                   onclick={(e) => e.stopPropagation()} target="_blank"
-                   rel="noopener" title="Open share link">go</a>
-              {/if}
-              <button class="ic-btn del" type="button"
-                      onclick={(e) => del(e, j)} title="Delete">x</button>
-            </span>
-          </div>
+          {@render railItem(j, historyActions)}
         {/each}
       {/if}
     {/if}
   </div>
 
-  {#if tab === 'history' && historyPageCount > 1}
-    <div class="rail-foot">
-      <span class="page-info">{historyPageClamped} / {historyPageCount}</span>
-      <div style="display:flex; gap:4px;">
-        <button class="page-btn" type="button" onclick={historyPagePrev}
-                disabled={historyPageClamped === 1} title="Previous">&lt;</button>
-        <button class="page-btn" type="button" onclick={historyPageNext}
-                disabled={historyPageClamped === historyPageCount} title="Next">&gt;</button>
-      </div>
-      <button class="clear" type="button" onclick={clearAll}>clear all</button>
-    </div>
-  {:else if tab === 'history' && history.length > 0}
-    <div class="rail-foot">
-      <span></span>
-      <span></span>
-      <button class="clear" type="button" onclick={clearAll}>clear all</button>
+  {#if tab === 'history' && history.length > 0}
+    <div class="flex items-center justify-between gap-2 border-t border-rule px-3.5 py-2">
+      {#if historyPageCount > 1}
+        <span class="text-[11px] tabular-nums text-mute">
+          {historyPageClamped} / {historyPageCount}
+        </span>
+        <div class="flex gap-1">
+          <Button
+            variant="outline"
+            size="icon"
+            class="size-[26px] [&_svg]:size-3"
+            onclick={historyPagePrev}
+            disabled={historyPageClamped === 1}
+            title="Previous"
+          >
+            <ChevronLeftIcon />
+          </Button>
+          <Button
+            variant="outline"
+            size="icon"
+            class="size-[26px] [&_svg]:size-3"
+            onclick={historyPageNext}
+            disabled={historyPageClamped === historyPageCount}
+            title="Next"
+          >
+            <ChevronRightIcon />
+          </Button>
+        </div>
+      {:else}
+        <span></span>
+        <span></span>
+      {/if}
+      <button
+        type="button"
+        class="cursor-pointer text-[11px] uppercase tracking-[0.12em] text-mute transition-colors hover:text-err"
+        onclick={clearAll}
+      >
+        clear all
+      </button>
     </div>
   {/if}
 </aside>
 
-<div class="dock-wrap">
-  <button class="dock-btn" type="button" onclick={toggleDock} aria-label="Open jobs">
+<!-- Bottom dock trigger; the rail is always visible at xl and up. -->
+<div class="fixed bottom-4 right-4 z-20 xl:hidden">
+  <Button onclick={toggleDock} aria-label="Open jobs" class="shadow-lg">
     <span>jobs</span>
-    <span class="badge">{total}</span>
-  </button>
+    <span
+      class="inline-flex h-5 min-w-5 items-center justify-center rounded-full
+             bg-background/20 px-1.5 text-[11px] tabular-nums"
+    >
+      {total}
+    </span>
+  </Button>
 </div>

@@ -1,8 +1,9 @@
 <script lang="ts">
   // Log viewer. rAF-batched auto-scroll that follows the tail unless the
-  // user scrolled up. Same chrome family as the rest of the page.
+  // user scrolled up.
   import { activeJob } from '$lib/stores/active.svelte';
   import { jobsStore } from '$lib/stores/jobs.svelte';
+  import { Card, CardContent, CardHeader, CardTitle } from '$lib/components/ui/card';
 
   const job = $derived(
     activeJob.jobId
@@ -10,12 +11,13 @@
       : (jobsStore.active ?? null)
   );
 
+  /** Colour a log line by severity inferred from its text. */
   function lineClass(msg: string): string {
     const lower = msg.toLowerCase();
-    if (lower.includes('error') || lower.includes('failed')) return 'err';
-    if (lower.includes('warn') || lower.includes('cancel')) return 'warn';
-    if (lower.includes('share url') || lower.includes(' uploaded ')) return 'ok';
-    if (msg.startsWith('$') || msg.startsWith('>')) return 'dim';
+    if (lower.includes('error') || lower.includes('failed')) return 'text-err';
+    if (lower.includes('warn') || lower.includes('cancel')) return 'text-queued';
+    if (lower.includes('share url') || lower.includes(' uploaded ')) return 'text-ok';
+    if (msg.startsWith('$') || msg.startsWith('>')) return 'text-mute';
     return '';
   }
 
@@ -45,19 +47,28 @@
   });
 </script>
 
-<section class="log card-like">
-  <div class="log-head">
-    <span>Log</span>
-  </div>
-  <div class="log-body" bind:this={bodyEl} onscroll={onScroll}>
-    {#if !job}
-      <div class="log-line dim">No active job.</div>
-    {:else if job.log_lines.length === 0}
-      <div class="log-line dim">No output yet.</div>
-    {:else}
-      {#each job.log_lines as line, i (i)}
-        <div class="log-line {lineClass(line)}">{line}</div>
-      {/each}
-    {/if}
-  </div>
-</section>
+<Card class="overflow-hidden">
+  <CardHeader class="bg-surface/60">
+    <CardTitle class="text-xs uppercase tracking-[0.14em] text-dim">Log</CardTitle>
+  </CardHeader>
+  <CardContent class="p-0">
+    <!-- The scroll container must be a real element: `bind:this` on a
+         component yields the component instance, not a node. -->
+    <div
+      class="max-h-80 overflow-y-auto px-5 py-3 text-[13px] text-[--fg-2]
+             [scrollbar-color:var(--rule-2)_transparent] [scrollbar-width:thin]"
+      bind:this={bodyEl}
+      onscroll={onScroll}
+    >
+      {#if !job}
+        <div class="text-mute">No active job.</div>
+      {:else if job.log_lines.length === 0}
+        <div class="text-mute">No output yet.</div>
+      {:else}
+        {#each job.log_lines as line, i (i)}
+          <div class="whitespace-pre-wrap break-all {lineClass(line)}">{line}</div>
+        {/each}
+      {/if}
+    </div>
+  </CardContent>
+</Card>

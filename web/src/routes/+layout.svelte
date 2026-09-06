@@ -56,15 +56,19 @@
           (v as HTMLVideoElement).dataset.fallback = '1';
           const dl = (v as HTMLVideoElement).getAttribute('src') ?? '';
           const wrap = document.createElement('div');
-          wrap.className = 'preview-fallback';
+          // Utility classes rather than a component: this node is built
+          // imperatively from a capture-phase listener, outside Svelte.
+          wrap.className =
+            'flex flex-col items-center gap-2 rounded-md border border-rule ' +
+            'bg-surface px-4 py-8 text-center';
           wrap.innerHTML =
-            '<p class="ttl">preview unavailable</p>' +
-            '<p class="hint">open the file directly to play it locally.</p>' +
-            '<div class="actions">' +
+            '<p class="text-sm text-[--fg-2]">preview unavailable</p>' +
+            '<p class="text-xs text-mute">open the file directly to play it locally.</p>' +
             (dl
-              ? '<a class="btn primary" href="' + dl + '">download</a>'
-              : '') +
-            '</div>';
+              ? '<a class="mt-2 inline-flex h-9 items-center rounded-md bg-primary ' +
+                'px-4 text-sm font-medium text-primary-foreground hover:bg-primary/90" ' +
+                'href="' + dl + '">download</a>'
+              : '');
           v.replaceWith(wrap);
         },
         true

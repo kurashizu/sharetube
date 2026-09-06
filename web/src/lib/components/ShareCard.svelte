@@ -1,7 +1,11 @@
 <script lang="ts">
   // Standalone share card. JobCard composes an inline share card now,
   // but this component is kept for any other surface that imports it.
-  // Same chrome token as the rest of the page.
+  import { Badge } from '$lib/components/ui/badge';
+  import { Button } from '$lib/components/ui/button';
+  import { Card, CardContent, CardHeader, CardTitle } from '$lib/components/ui/card';
+  import { Input } from '$lib/components/ui/input';
+
   interface Props {
     shareUrl: string;
     directUrl: string;
@@ -22,23 +26,33 @@
   }
 </script>
 
-<section class="job share card-like">
-  <header class="job-head">
-    <span class="dot ok"></span>
-    <span class="title">share ready</span>
-    <span class="grow"></span>
-    <span class="state done">done</span>
-  </header>
-  <div class="share-bar">
-    <input class="url" readonly value={directUrl}
-           aria-label="Direct download link" />
-    <button class="btn primary copy" type="button" onclick={copy}>
-      <span class="lbl">copy</span>
-      <span class="ok">copied</span>
-    </button>
-  </div>
-  <a href={shareUrl} target="_blank" rel="noopener">open viewer</a>
-  {#if expiresAt}
-    <div class="meta">expires {new Date(expiresAt).toLocaleString()}</div>
-  {/if}
-</section>
+<Card class="border-ok/40">
+  <CardHeader>
+    <div class="flex items-center gap-2.5">
+      <span class="size-2 rounded-full bg-ok"></span>
+      <CardTitle>share ready</CardTitle>
+    </div>
+    <Badge variant="done">done</Badge>
+  </CardHeader>
+  <CardContent class="flex flex-col gap-3">
+    <div class="flex gap-2.5">
+      <Input readonly value={directUrl} aria-label="Direct download link" />
+      <Button class="min-w-24 shrink-0" onclick={copy}>
+        {copied ? 'copied' : 'copy'}
+      </Button>
+    </div>
+    <a
+      class="text-[13px] text-primary underline-offset-4 hover:underline"
+      href={shareUrl}
+      target="_blank"
+      rel="noopener"
+    >
+      open viewer
+    </a>
+    {#if expiresAt}
+      <div class="text-xs text-mute">
+        expires {new Date(expiresAt).toLocaleString()}
+      </div>
+    {/if}
+  </CardContent>
+</Card>

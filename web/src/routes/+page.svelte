@@ -45,7 +45,15 @@
 
 <Header onOpenSettings={openSettings} onOpenHelp={openHelp} />
 
-<main>
+<!-- `xl:pr-*` reserves the fixed rail's 340px column; below xl the rail
+     becomes a bottom sheet and main reclaims the full width. Top padding
+     clears the fixed header, which wraps to two rows on narrow screens. -->
+<main
+  class="flex w-full flex-col gap-6 px-3 pb-24 pt-28
+         sm:px-6 sm:pb-20 sm:pt-24
+         lg:px-14 lg:pb-16
+         xl:pr-[calc(340px+3.5rem)]"
+>
   <Hero />
   <JobCard />
 </main>

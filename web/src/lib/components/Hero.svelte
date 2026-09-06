@@ -7,6 +7,8 @@
   import { startJob } from '$lib/api';
   import { configStore } from '$lib/stores/config.svelte';
   import { getToken } from '$lib/turnstile';
+  import { Button } from '$lib/components/ui/button';
+  import { Input } from '$lib/components/ui/input';
   import { onMount } from 'svelte';
 
   let url = $state('');
@@ -119,11 +121,11 @@
   }
 </script>
 
-<section class="ask">
-  <div class="ask-row">
-    <input
+<section class="flex w-full flex-col gap-2">
+  <div class="flex flex-col gap-2 sm:flex-row sm:gap-2.5">
+    <Input
       id="urlInput"
-      class="url"
+      class="h-11 flex-1 bg-surface/40 px-3.5 text-sm sm:h-9"
       type="text"
       placeholder="Paste a video URL..."
       bind:value={url}
@@ -132,15 +134,24 @@
       autocomplete="off"
       spellcheck="false"
     />
-    <button class="btn" id="pasteBtn" type="button" onclick={paste}
-            class:empty={!pasteAvailable}
-            title="Paste from clipboard">
+    <Button
+      variant="outline"
+      class="h-11 w-full sm:h-9 sm:w-auto sm:min-w-24 {pasteAvailable ? '' : 'opacity-55'}"
+      onclick={paste}
+      title="Paste from clipboard"
+    >
       paste
-    </button>
-    <button class="btn primary" id="runBtn" type="button" onclick={start}
-            disabled={submitting || isActive}>
+    </Button>
+    <Button
+      id="runBtn"
+      class="h-11 w-full sm:h-9 sm:w-auto sm:min-w-24"
+      onclick={start}
+      disabled={submitting || isActive}
+    >
       {submitting ? 'submitting' : 'run'}
-    </button>
+    </Button>
   </div>
-  <p class="hint">{hint}</p>
+  {#if hint}
+    <p class="text-[13px] text-err">{hint}</p>
+  {/if}
 </section>

@@ -1,17 +1,25 @@
 // Client-side Turnstile helper.
 //
-// The widget renders in an invisible container and is executed on
-// demand at submit time, so the page keeps its current look and the
-// user only ever sees an interstitial when Cloudflare decides one is
-// warranted. Tokens are single-use: each submit resets the widget and
-// solves again, otherwise the second job of a session would be
-// rejected with `timeout-or-duplicate`.
+// The widget is rendered once into a zero-height container and solved on
+// demand at submit time via `turnstile.execute()`. With
+// `appearance: 'interaction-only'` nothing is shown unless Cloudflare
+// actually decides a challenge is warranted, so the page keeps its
+// layout in the common case.
+//
+// Tokens are single-use and short-lived: every submit resets the widget
+// and solves again, otherwise the second job of a session would be
+// rejected by siteverify with `timeout-or-duplicate`.
+//
+// Note the option names matter. `size` only accepts normal/flexible/
+// compact — there is no 'invisible' size; deferred, non-intrusive
+// behaviour comes from `execution` + `appearance`.
 
 const SCRIPT_SRC =
   'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit';
 
 interface TurnstileApi {
   render(el: HTMLElement, opts: Record<string, unknown>): string;
+  execute(el: HTMLElement | string, opts?: Record<string, unknown>): void;
   reset(widgetId: string): void;
   remove(widgetId: string): void;
 }
@@ -57,6 +65,25 @@ function settle(token: string | null) {
 }
 
 /**
+ * The host element for the widget.
+ *
+ * It must stay in normal flow and be visible to layout — Turnstile
+ * refuses to run inside a container it considers hidden, so
+ * `display:none` or an off-screen `left:-9999px` box silently fails.
+ * A zero-height overflow-hidden box is laid out normally but occupies
+ * no space until a challenge actually needs to be shown.
+ */
+function ensureContainer(): HTMLElement {
+  if (container) return container;
+  const el = document.createElement('div');
+  el.style.height = '0';
+  el.style.overflow = 'hidden';
+  container = el;
+  document.body.appendChild(el);
+  return el;
+}
+
+/**
  * Obtain a fresh Turnstile token, or null when Turnstile is
  * unavailable (no site key configured, script blocked, solve failed).
  *
@@ -72,15 +99,7 @@ export async function getToken(sitekey: string, timeoutMs = 30_000): Promise<str
   // request is in flight, but guard anyway.
   if (pending) settle(null);
 
-  if (!container) {
-    container = document.createElement('div');
-    // Off-screen rather than display:none — Turnstile refuses to run
-    // in a container it considers hidden.
-    container.style.position = 'fixed';
-    container.style.left = '-9999px';
-    container.style.top = '0';
-    document.body.appendChild(container);
-  }
+  const el = ensureContainer();
 
   return new Promise<string | null>((resolve) => {
     pending = resolve;
@@ -92,18 +111,25 @@ export async function getToken(sitekey: string, timeoutMs = 30_000): Promise<str
 
     try {
       if (widgetId === null) {
-        widgetId = api.render(container!, {
+        widgetId = api.render(el, {
           sitekey,
-          size: 'invisible',
+          // Defer the challenge until execute() rather than solving on
+          // render, so the token is fresh at submit time.
+          execution: 'execute',
+          // Stay hidden unless Cloudflare needs user interaction.
+          appearance: 'interaction-only',
           callback: (token: string) => done(token),
           'error-callback': () => done(null),
-          'timeout-callback': () => done(null)
+          'timeout-callback': () => done(null),
+          'expired-callback': () => done(null)
         });
       } else {
-        // Reset re-arms the existing widget and re-fires the callback
-        // with a fresh, unredeemed token.
+        // Clear the previous single-use token before re-solving.
         api.reset(widgetId);
       }
+      // With execution:'execute' the challenge only runs when asked —
+      // required on the first render and on every subsequent solve.
+      api.execute(el);
     } catch {
       done(null);
     }

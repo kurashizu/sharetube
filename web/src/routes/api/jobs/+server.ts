@@ -9,6 +9,12 @@
 // pending jobs that were never dispatched, and running jobs whose last
 // update is stale, are flipped to `error` so the UI never shows a job
 // as forever "working".
+//
+// POST is the only public entry point that costs money (each job burns
+// a GitHub Actions runner), so it carries the abuse controls: a
+// Turnstile challenge, a per-IP rate limit, and queue-depth caps. See
+// lib/server/guard.ts. DELETE (clear history) only ever touches the
+// caller's own finished rows.
 
 import { error, json, type RequestHandler } from '@sveltejs/kit';
 import type {
@@ -17,11 +23,22 @@ import type {
   JobEntry
 } from '$lib/types';
 import { cleanupZombies, dispatchPending, pollGhRuns } from '$lib/server/dispatch';
+import {
+  ENQUEUE_LIMIT,
+  ENQUEUE_WINDOW_S,
+  checkQueueCapacity,
+  checkRateLimit,
+  clientIp,
+  currentOwner,
+  ensureOwner
+} from '$lib/server/guard';
+import { verifyTurnstile } from '$lib/server/turnstile';
 
 interface Env {
   DB: D1Database;
   GH_REPO?: string;
   GH_DISPATCH_TOKEN?: string;
+  TURNSTILE_SECRET?: string;
 }
 
 interface Counters {
@@ -144,7 +161,7 @@ export const GET: RequestHandler = async ({ platform }) => {
   return json({ jobs });
 };
 
-export const POST: RequestHandler = async ({ request, platform }) => {
+export const POST: RequestHandler = async ({ request, platform, cookies }) => {
   const env = platform!.env;
   const body = (await request.json()) as CreateJobRequest;
   if (!body || typeof body.url !== 'string') {
@@ -156,6 +173,31 @@ export const POST: RequestHandler = async ({ request, platform }) => {
   if (!body.config) {
     throw error(400, 'missing config');
   }
+
+  const ip = clientIp(request);
+
+  // Layer 1 — a human solved the challenge. Checked before the rate
+  // limit so a bot flood doesn't consume the caller's quota (they'd
+  // then be locked out by a burst aimed at their shared NAT address).
+  const human = await verifyTurnstile(env, body.turnstile_token, ip);
+  if (!human.ok) throw error(403, human.reason ?? 'Verification failed.');
+
+  // Layer 2 — per-IP rate limit. A solved Turnstile token is valid for
+  // minutes and a real user can keep solving, so the challenge alone
+  // does not bound submission volume.
+  const rl = await checkRateLimit(env, 'enqueue', ip, ENQUEUE_LIMIT, ENQUEUE_WINDOW_S);
+  if (!rl.ok) {
+    return json(
+      { error: `Rate limit reached (${ENQUEUE_LIMIT}/hour). Try again later.` },
+      { status: 429, headers: { 'Retry-After': String(rl.retryAfter) } }
+    );
+  }
+
+  // Layer 3 — queue caps. This is what actually protects the GitHub
+  // Actions budget: MAX_PARALLEL bounds concurrency, not total volume.
+  const owner = ensureOwner(cookies);
+  const cap = await checkQueueCapacity(env, owner);
+  if (!cap.ok) return json({ error: cap.reason }, { status: 429 });
 
   const id = crypto.randomUUID();
   const now = Math.floor(Date.now() / 1000);
@@ -169,16 +211,17 @@ export const POST: RequestHandler = async ({ request, platform }) => {
     `INSERT INTO jobs
        (id, url, status, phase, dl_pct, tx_pct, up_pct, meta,
         log_lines, share_url, direct_url, expires_at, error,
-        config_json, queue_pos, title, cancelled, dispatched, created_at, updated_at)
+        config_json, queue_pos, title, cancelled, dispatched, owner, created_at, updated_at)
      VALUES (?, ?, 'pending', NULL, 0, 0, 0, '',
              '[]', NULL, NULL, NULL, NULL,
-             ?, ?, NULL, 0, 0, ?, ?)`
+             ?, ?, NULL, 0, 0, ?, ?, ?)`
   )
     .bind(
       id,
       body.url,
       JSON.stringify(body.config ?? {}),
       queue_pos,
+      owner,
       now,
       now
     )
@@ -191,11 +234,21 @@ export const POST: RequestHandler = async ({ request, platform }) => {
   return json(res);
 };
 
-/** Clear finished history (done / error / cancelled), keep queue. */
-export const DELETE: RequestHandler = async ({ platform }) => {
+/**
+ * Clear finished history (done / error / cancelled), keep queue.
+ *
+ * Scoped to the caller's own rows so one visitor can't wipe everyone's
+ * history. Legacy rows (owner IS NULL, predating ownership) are cleared
+ * too — nobody holds a token for them, so otherwise they'd be
+ * permanently stuck in every visitor's history list.
+ */
+export const DELETE: RequestHandler = async ({ platform, cookies }) => {
   const env = platform!.env;
+  const owner = currentOwner(cookies);
   await env.DB.prepare(
-    `DELETE FROM jobs WHERE status IN ('done', 'error', 'cancelled')`
-  ).run();
+    `DELETE FROM jobs
+      WHERE status IN ('done', 'error', 'cancelled')
+        AND (owner IS NULL OR owner = ?)`
+  ).bind(owner).run();
   return json({ ok: true });
 };

@@ -15,6 +15,10 @@
  *   INTERNAL_TOKEN    – Shared secret the Python runner uses to
  *                       authenticate when posting progress updates
  *                       back to /api/internal/progress.
+ *   TURNSTILE_SECRET  – Cloudflare Turnstile secret key, paired with
+ *                       the public PUBLIC_TURNSTILE_SITEKEY var below.
+ *                       When unset, the bot check is skipped and only
+ *                       the rate limits / queue caps apply.
  */
 {
   "$schema": "node_modules/wrangler/config-schema.json",
@@ -23,7 +27,10 @@
   "compatibility_date": "2025-01-01",
   "compatibility_flags": ["nodejs_compat"],
   "vars": {
-    "GH_REPO": "kurashizu/sharetube"
+    "GH_REPO": "kurashizu/sharetube",
+    // Turnstile site key. Public by design — it ships in the page and
+    // is meaningless without the paired TURNSTILE_SECRET.
+    "PUBLIC_TURNSTILE_SITEKEY": "0x4AAAAAAD2Ilp9c8uP6HIzj"
   },
   "d1_databases": [
     {

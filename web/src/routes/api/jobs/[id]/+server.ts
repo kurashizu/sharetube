@@ -12,6 +12,14 @@
 
 import { error, json, type RequestHandler } from '@sveltejs/kit';
 import { cleanupZombies } from '$lib/server/dispatch';
+import {
+  MUTATE_LIMIT,
+  MUTATE_WINDOW_S,
+  checkRateLimit,
+  clientIp,
+  currentOwner,
+  ownsJob
+} from '$lib/server/guard';
 
 interface Env {
   DB: D1Database;
@@ -20,7 +28,7 @@ interface Env {
 const JOB_COLS = `id, url, status, phase, dl_pct, tx_pct, up_pct, meta,
             log_lines, share_url, direct_url, expires_at, error,
             config_json, queue_pos, title, cancelled, created_at, updated_at,
-            phase_meta_json`;
+            phase_meta_json, owner`;
 
 async function getRow(env: Env, id: string) {
   return env.DB.prepare(`SELECT ${JOB_COLS} FROM jobs WHERE id = ?`)
@@ -46,6 +54,7 @@ async function getRow(env: Env, id: string) {
       created_at: number;
       updated_at: number;
       phase_meta_json: string;
+      owner: string | null;
     }>();
 }
 
@@ -97,11 +106,25 @@ export const GET: RequestHandler = async ({ platform, params }) => {
 };
 
 /** Hard-delete a job row. Safe for any status; running jobs are
- *  marked cancelled first (their runner aborts), then deleted. */
-export const DELETE: RequestHandler = async ({ platform, params }) => {
+ *  marked cancelled first (their runner aborts), then deleted.
+ *  Restricted to the job's owner. */
+export const DELETE: RequestHandler = async ({ request, platform, params, cookies }) => {
   const env = platform!.env;
+
+  const rl = await checkRateLimit(
+    env, 'mutate', clientIp(request), MUTATE_LIMIT, MUTATE_WINDOW_S
+  );
+  if (!rl.ok) {
+    return json({ error: 'Too many requests.' }, {
+      status: 429, headers: { 'Retry-After': String(rl.retryAfter) }
+    });
+  }
+
   const row = await getRow(env, params.id!);
   if (!row) throw error(404, 'job not found');
+  if (!ownsJob(row.owner, currentOwner(cookies))) {
+    throw error(403, 'not your job');
+  }
 
   if (row.status === 'running' || row.status === 'pending') {
     await env.DB.prepare(

@@ -19,6 +19,13 @@ declare global {
         GH_REPO?: string;
         GH_DISPATCH_TOKEN?: string;
         INTERNAL_TOKEN?: string;
+        /** Turnstile secret key, set via `wrangler secret put
+         *  TURNSTILE_SECRET`. When unset the bot check is skipped
+         *  (rate limits and queue caps still apply). */
+        TURNSTILE_SECRET?: string;
+        /** Turnstile site key. Public — served to the SPA by
+         *  GET /api/config and embedded in the widget. */
+        PUBLIC_TURNSTILE_SITEKEY?: string;
       };
       context: {
         waitUntil(promise: Promise<unknown>): void;

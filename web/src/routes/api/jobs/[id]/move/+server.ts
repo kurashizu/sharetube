@@ -4,16 +4,36 @@
 //
 // Only pending jobs can move (running/done/error are not in the
 // queue). We swap `queue_pos` with the adjacent pending neighbour.
+//
+// Restricted to the job's owner — reordering is a way to starve other
+// people's jobs, so it must not be open to every visitor.
 
 import { json, type RequestHandler } from '@sveltejs/kit';
+import {
+  MUTATE_LIMIT,
+  MUTATE_WINDOW_S,
+  checkRateLimit,
+  clientIp,
+  currentOwner,
+  ownsJob
+} from '$lib/server/guard';
 
 interface Env {
   DB: D1Database;
 }
 
-export const POST: RequestHandler = async ({ request, platform, params }) => {
+export const POST: RequestHandler = async ({ request, platform, params, cookies }) => {
   const env = platform!.env;
   const id = params.id!;
+
+  const rl = await checkRateLimit(
+    env, 'mutate', clientIp(request), MUTATE_LIMIT, MUTATE_WINDOW_S
+  );
+  if (!rl.ok) {
+    return json({ error: 'Too many requests.' }, {
+      status: 429, headers: { 'Retry-After': String(rl.retryAfter) }
+    });
+  }
 
   let direction: string;
   try {
@@ -27,9 +47,12 @@ export const POST: RequestHandler = async ({ request, platform, params }) => {
   }
 
   const row = await env.DB.prepare(
-    `SELECT status, queue_pos FROM jobs WHERE id = ?`
-  ).bind(id).first<{ status: string; queue_pos: number }>();
+    `SELECT status, queue_pos, owner FROM jobs WHERE id = ?`
+  ).bind(id).first<{ status: string; queue_pos: number; owner: string | null }>();
   if (!row) return json({ error: 'job not found' }, { status: 404 });
+  if (!ownsJob(row.owner, currentOwner(cookies))) {
+    return json({ error: 'not your job' }, { status: 403 });
+  }
   if (row.status !== 'pending') {
     return json({ error: 'only queued (pending) jobs can be reordered' }, { status: 409 });
   }

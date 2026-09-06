@@ -86,6 +86,11 @@ export interface JobEntry {
 export interface CreateJobRequest {
   url: string;
   config: JobConfig;
+  /** Cloudflare Turnstile token proving a human submitted the form.
+   *  Single-use and short-lived; redeemed server-side against
+   *  siteverify. Omitted when the widget hasn't loaded — the Worker
+   *  only enforces it when TURNSTILE_SECRET is configured. */
+  turnstile_token?: string;
 }
 
 export interface CreateJobResponse {

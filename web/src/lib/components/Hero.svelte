@@ -6,12 +6,17 @@
   import { activeJob } from '$lib/stores/active.svelte';
   import { startJob } from '$lib/api';
   import { configStore } from '$lib/stores/config.svelte';
+  import { getToken } from '$lib/turnstile';
   import { onMount } from 'svelte';
 
   let url = $state('');
   let submitting = $state(false);
   let hint = $state('');
   let pasteAvailable = $state(false);
+  // Turnstile site key, fetched at runtime from /api/config. Null when
+  // the deploy has no key configured — submission still works, and the
+  // Worker's rate limits / queue caps remain in force.
+  let sitekey: string | null = null;
 
   const isActive = $derived(
     activeJob.job?.status === 'running' ||
@@ -27,6 +32,17 @@
       !!navigator.clipboard &&
       typeof navigator.clipboard.readText === 'function' &&
       (typeof window !== 'undefined' ? window.isSecureContext : true);
+
+    // Fetch the site key up front so the first submit doesn't pay for
+    // this round-trip on top of the challenge itself.
+    void fetch('/api/config', { headers: { Accept: 'application/json' } })
+      .then((r) => (r.ok ? (r.json() as Promise<{ turnstile_sitekey: string | null }>) : null))
+      .then((cfg) => {
+        sitekey = cfg?.turnstile_sitekey ?? null;
+      })
+      .catch(() => {
+        // Non-fatal: submit proceeds without a token.
+      });
   });
 
   async function paste() {
@@ -62,9 +78,16 @@
     hint = '';
     submitting = true;
     try {
+      // Solve the challenge before submitting. Tokens are single-use,
+      // so this runs on every submit, not just the first.
+      const turnstile_token = sitekey
+        ? (await getToken(sitekey)) ?? undefined
+        : undefined;
+
       const cfg = configStore.settings;
       const res = await startJob({
         url: trimmed,
+        turnstile_token,
         config: {
           max_resolution: cfg.max_resolution,
           output_resolution: cfg.output_resolution,

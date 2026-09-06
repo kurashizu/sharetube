@@ -119,7 +119,19 @@ export async function getToken(sitekey: string, timeoutMs = 30_000): Promise<str
           // Stay hidden unless Cloudflare needs user interaction.
           appearance: 'interaction-only',
           callback: (token: string) => done(token),
-          'error-callback': () => done(null),
+          // Surface the error code: a misconfigured widget (e.g. 110200
+          // "domain not authorized", when the site's exact hostname is
+          // missing from Hostname Management) otherwise shows up only as
+          // a generic verification failure with no way to diagnose it.
+          'error-callback': (code?: string) => {
+            console.warn(
+              `Turnstile error${code ? ` ${code}` : ''}` +
+                (code === '110200'
+                  ? ` — this hostname is not in the widget's allowed list.`
+                  : '')
+            );
+            done(null);
+          },
           'timeout-callback': () => done(null),
           'expired-callback': () => done(null)
         });
